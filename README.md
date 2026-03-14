@@ -19,21 +19,26 @@ Arashi treats volatility as an asset class. The keeper bot computes realized vol
 ```
 User deposits USDC → Voltr Vault
                       └── Arashi Keeper
-                           ├── Vol Engine
+                           ├── Emergency Monitor (30s loop)
+                           │   ├── Health ratio check
+                           │   └── Drawdown check (5% / 8%)
+                           ├── Vol Engine (10 min)
                            │   ├── Fetch hourly candles (168 samples)
-                           │   ├── Yang-Zhang estimator
-                           │   ├── Parkinson estimator
+                           │   ├── Yang-Zhang + Parkinson estimators
                            │   └── EMA smoothing (7d / 30d)
-                           ├── Regime Detector
+                           ├── Funding Filter (10 min)
+                           │   ├── Hard gate: funding must be > 0
+                           │   └── Cost gate: funding > round-trip fees
+                           ├── Regime Detector (3 min)
                            │   ├── Classify: veryLow → extreme
-                           │   ├── Detect transitions
-                           │   └── Pause on extreme / rapid shifts
-                           ├── Vol Trader
-                           │   ├── Size by regime (0-50% of equity)
+                           │   ├── Pre-extreme wind-down at 60%
+                           │   └── Pause on rapid transitions
+                           ├── Vol Trader (30 min rebalance)
+                           │   ├── Size by regime (0-35% of equity)
                            │   └── Short perps on SOL/BTC/ETH
-                           └── Delta Hedger
-                               ├── Compute portfolio delta
-                               └── Rehedge when |delta| > ±5%
+                           └── Delta Hedger (regime-aware)
+                               ├── Dynamic threshold: ±5% → ±0.5%
+                               └── Tightens with vol regime
 ```
 
 ### Why Volatility Harvesting
@@ -152,11 +157,15 @@ The detector also pauses trading on rapid regime transitions (>3 in one hour) �
 
 | Risk | Mitigation |
 |------|------------|
-| Vol spike beyond extreme threshold | Automatic position closure at extreme regime |
-| Delta drift from rapid price moves | 5-minute regime checks + hourly rehedge |
-| Prolonged low-vol environment | Minimal 10% sizing preserves capital while collecting small premium |
-| Funding rate inversion | Exit positions when funding turns negative |
-| Cascading liquidations on Drift | Max 3x leverage with regime-adaptive scaling |
+| High vol + negative funding (bear panic) | **Funding polarity gate** blocks entry even when vol signals opportunity — prevents paying to hold a losing position |
+| Vol spike beyond extreme threshold | Pre-extreme wind-down at 60% vol halves positions before the 75% full-stop triggers; 30s health checks catch gaps |
+| Delta drift from rapid price moves | Dynamic delta thresholds tighten with regime (±1% in high vol); 3-minute regime checks detect shifts |
+| Prolonged low-vol environment | Minimal 5% sizing preserves capital; cost gate prevents unprofitable churn |
+| Hedging costs exceed returns | Cost gate: expected funding must exceed round-trip fees (0.17%) over 12h hold period |
+| Liquidity panic / stop-loss failure | Health monitor at 30s catches margin deterioration; 1.5x max leverage provides wide buffer to 1.0 liquidation |
+| Jump risk (flash crash) | Yang-Zhang estimator is more robust than close-to-close for gap events; acknowledged limitation noted below |
+
+**Known limitation**: The Yang-Zhang estimator assumes continuous price paths and struggles with discontinuous jumps (flash crashes). In such events, the regime detector may lag by 1-2 update cycles (3-6 minutes). The 30-second health monitor serves as the last line of defense for these scenarios.
 
 ## Fees
 
