@@ -201,7 +201,7 @@ Main Loop (30-second tick)
 - **Regime Detection**: 5-level classification with pre-extreme wind-down
 - **Funding Filter**: Polarity gate + cost gate
 - **Data**: Drift Data API — OHLC candles, oracle prices, funding rates
-- **RPC**: Helius
+- **RPC**: QuickNode
 
 ### Execution Flow
 

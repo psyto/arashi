@@ -25,9 +25,9 @@ export function loadKeypair(envVar: string): Keypair {
 }
 
 export function getConnection(): Connection {
-  const rpcUrl = process.env.HELIUS_RPC_URL;
+  const rpcUrl = process.env.RPC_URL;
   if (!rpcUrl) {
-    throw new Error("HELIUS_RPC_URL not set");
+    throw new Error("RPC_URL not set");
   }
   return new Connection(rpcUrl, "confirmed");
 }
