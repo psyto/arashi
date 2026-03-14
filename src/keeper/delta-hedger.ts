@@ -7,12 +7,13 @@ import {
 } from "@drift-labs/sdk";
 import { BASE_PRECISION, PRICE_PRECISION } from "../config/constants";
 import { STRATEGY_CONFIG } from "../config/vault";
+import { VolRegime } from "./regime-detector";
 
 export interface PortfolioDelta {
   netDeltaUsd: number;
-  deltaByMarket: Map<number, number>; // marketIndex -> delta in USD
+  deltaByMarket: Map<number, number>;
   totalNotional: number;
-  deltaPct: number; // netDelta as % of total notional
+  deltaPct: number;
 }
 
 /**
@@ -51,25 +52,42 @@ export function computePortfolioDelta(
 }
 
 /**
- * Determine if a delta hedge is needed
+ * Get the dynamic delta threshold for the current regime.
+ *
+ * Addresses the critique: "±5% delta is too loose. For a strategy
+ * claiming to harvest volatility, allowing 5% delta exposure is
+ * effectively a directional gamble in disguise."
+ *
+ * Now: 5% in veryLow → 0.5% in extreme (tightens with vol)
  */
-export function needsHedge(delta: PortfolioDelta): {
+export function getDeltaThreshold(regime: VolRegime): number {
+  const thresholds = STRATEGY_CONFIG.maxDeltaPctByRegime;
+  return thresholds[regime] ?? 2;
+}
+
+/**
+ * Determine if a delta hedge is needed using regime-aware threshold
+ */
+export function needsHedge(
+  delta: PortfolioDelta,
+  regime: VolRegime
+): {
   hedge: boolean;
   hedgeSizeUsd: number;
   direction: "long" | "short";
+  threshold: number;
 } {
-  const { maxDeltaPct } = STRATEGY_CONFIG;
+  const threshold = getDeltaThreshold(regime);
 
-  if (delta.deltaPct <= maxDeltaPct) {
-    return { hedge: false, hedgeSizeUsd: 0, direction: "long" };
+  if (delta.deltaPct <= threshold) {
+    return { hedge: false, hedgeSizeUsd: 0, direction: "long", threshold };
   }
 
-  // Hedge back to zero delta
   const hedgeSizeUsd = Math.abs(delta.netDeltaUsd);
   const direction: "long" | "short" =
     delta.netDeltaUsd > 0 ? "short" : "long";
 
-  return { hedge: true, hedgeSizeUsd, direction };
+  return { hedge: true, hedgeSizeUsd, direction, threshold };
 }
 
 /**
@@ -100,7 +118,7 @@ export async function executeDeltaHedge(
 
   const txSig = await driftClient.placePerpOrder(orderParams);
   console.log(
-    `Delta hedge: ${direction} $${hedgeSizeUsd.toFixed(2)} on market ${hedgeMarket} | tx: ${txSig}`
+    `Delta hedge: ${direction} $${hedgeSizeUsd.toFixed(2)} on market ${hedgeMarket} (threshold: regime-based) | tx: ${txSig}`
   );
   return txSig;
 }

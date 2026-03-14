@@ -84,9 +84,11 @@ Key advantages:
 |--------|------|---------|
 | Vol Engine | `src/keeper/vol-engine.ts` | 3 volatility estimators + EMA smoothing |
 | Regime Detector | `src/keeper/regime-detector.ts` | 5-regime classification with transition detection |
-| Delta Hedger | `src/keeper/delta-hedger.ts` | Portfolio delta computation and automated hedging |
+| Funding Filter | `src/keeper/funding-filter.ts` | Funding polarity gate — blocks entry when funding is negative or below cost threshold |
+| Health Monitor | `src/keeper/health-monitor.ts` | 30-second health ratio and drawdown monitoring |
+| Delta Hedger | `src/keeper/delta-hedger.ts` | Regime-aware dynamic delta thresholds and automated hedging |
 | Vol Trader | `src/keeper/vol-trader.ts` | Regime-adaptive position sizing and execution |
-| Keeper Loop | `src/keeper/index.ts` | Main event loop — vol update, regime check, rebalance, hedge |
+| Keeper Loop | `src/keeper/index.ts` | Main event loop — emergency checks, funding gate, vol update, regime, rebalance, hedge |
 | Vault Setup | `src/scripts/` | Admin scripts to initialize Voltr vault + Drift adaptor |
 
 ## Volatility Estimators
@@ -112,13 +114,16 @@ Exponential moving averages with configurable half-lives (7-day and 30-day) dete
 
 ## Regime Detection
 
-| Regime | Vol Range | Position Sizing | Behavior |
-|--------|-----------|----------------|----------|
-| Very Low | < 20% | 10% of equity | Small positions — low premium available |
-| Low | 20-35% | 30% | Moderate exposure |
-| Normal | 35-50% | 50% | Optimal — richest risk-adjusted premium |
-| High | 50-75% | 30% | Scale back — rising risk |
-| Extreme | > 75% | 0% | **Full stop** — close all positions |
+| Regime | Vol Range | Position Sizing | Delta Threshold | Behavior |
+|--------|-----------|----------------|-----------------|----------|
+| Very Low | < 20% | 5% of equity | ±5% | Minimal — premium too thin |
+| Low | 20-35% | 20% | ±3% | Moderate exposure |
+| Normal | 35-50% | 35% | ±2% | Optimal — richest risk-adjusted premium |
+| High | 50-75% | 15% | ±1% | Significant scale-back |
+| Pre-Extreme | 60-75% | 7.5% (50% of high) | ±1% | Wind-down in progress |
+| Extreme | > 75% | 0% | ±0.5% | **Full stop** — close all positions |
+
+**Funding polarity gate**: Even in an optimal vol regime, positions are **blocked** if funding is negative. This prevents the critical failure mode where high vol + negative funding = paying to hold a losing position.
 
 The detector also pauses trading on rapid regime transitions (>3 in one hour) — indicating an unstable market where regime classification is unreliable.
 
@@ -126,15 +131,22 @@ The detector also pauses trading on rapid regime transitions (>3 in one hour) �
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| Max drawdown | 8% | Closes all positions if breached |
-| Max delta | ±5% | Rehedge trigger — maintains neutrality |
-| Max vega exposure | 15% of equity | Limits vol sensitivity |
-| Max leverage | 3x | Conservative for vol strategies |
+| Max drawdown | 5% / 8% severe | Reduce at 5%, close all at 8% |
+| Max delta | ±5% to ±0.5% | **Dynamic** — tightens with vol regime |
+| Max vega exposure | 10% of equity | Reduced from 15% |
+| Max leverage | 1.5x | Reduced from 3x — vol needs low leverage |
+| Funding gate | Must be positive | **Hard gate** — no entry when funding < 0 |
+| Cost gate | Funding > round-trip fees | Prevents fee churn on thin premiums |
+| Health ratio warning | 1.15 | Start reducing positions |
+| Health ratio critical | 1.08 | Emergency close all |
+| Health check interval | 30 seconds | Near real-time monitoring |
+| Pre-extreme wind-down | > 60% vol | Halve position sizes before extreme triggers |
 | Extreme regime action | Close all | No positions during market crashes |
-| Transition pause | >3/hour | Unstable regime detection → pause |
-| Vol update interval | 15 min | Frequent vol computation |
-| Regime check interval | 5 min | Fast regime shift detection |
-| Rebalance interval | 1 hour | Position adjustment frequency |
+| Transition pause | >3/hour | Unstable regime → pause |
+| Vol update interval | 10 min | Frequent vol computation |
+| Regime check interval | 3 min | Fast regime shift detection |
+| Rebalance interval | 30 min | Faster reaction |
+| Emergency check | 30 seconds | Health + drawdown monitoring |
 
 ### What Can Go Wrong
 

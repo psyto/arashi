@@ -35,27 +35,56 @@ export const STRATEGY_CONFIG = {
   },
 
   // Position sizing by regime (% of total equity)
+  // Reduced across the board — extreme now triggers pre-emptive wind-down
   regimeSizing: {
-    veryLow: 10, // Small positions — low premium
-    low: 30, // Moderate
-    normal: 50, // Optimal — vol premium richest relative to risk
-    high: 30, // Scale back — risk rising
-    extreme: 0, // Stop trading — wait for storm to pass
-  },
+    veryLow: 5, // Minimal — premium too thin (was 10%)
+    low: 20, // Moderate (was 30%)
+    normal: 35, // Optimal — richest risk-adjusted premium (was 50%)
+    high: 15, // Significant scale-back (was 30%)
+    extreme: 0, // Full stop
+  } as Record<string, number>,
 
-  // Delta hedging
-  maxDeltaPct: 5, // Rehedge when portfolio delta > ±5% of notional
+  // Pre-extreme wind-down: start reducing when vol > 60% (between high and extreme)
+  preExtremeWindDownBps: 6000, // At 60% vol, begin reducing to 50% of high-regime sizing
+
+  // === FUNDING POLARITY FILTER (HIGHEST PRIORITY — new) ===
+  // The primary condition for entry is positive funding, NOT just high vol.
+  // "If the core of the strategy is harvesting funding, the primary condition
+  //  should be Funding Rate > 0" — reviewer
+  minFundingRateToEnter: 0.0001, // Minimum positive funding rate (per hour)
+  fundingMustBePositive: true, // Hard gate: no entry when funding < 0
+  // Cost gate: expected funding must exceed hedging costs
+  driftTakerFeeBps: 3.5,
+  estimatedSlippageBps: 5,
+  minHoldingPeriodHours: 12, // Shorter hold for vol trades
+
+  // === DYNAMIC DELTA THRESHOLDS (new) ===
+  // Delta threshold tightens with regime — addresses "±5% is too loose" critique
+  maxDeltaPctByRegime: {
+    veryLow: 5, // Loose in calm markets — cheap to hedge
+    low: 3, // Tighter
+    normal: 2, // Tight — vol premium fragile if directional
+    high: 1, // Very tight — any delta is a gamble
+    extreme: 0.5, // Near-zero — emergency mode
+  } as Record<string, number>,
   hedgeMarket: 0, // SOL-PERP as primary hedge instrument
 
-  // Risk limits
-  maxDrawdownPct: 8, // 8% max drawdown
-  maxVegaExposurePct: 15, // Max 15% of equity as vega
-  maxLeverage: 3,
+  // === HEALTH MONITORING (new) ===
+  minHealthRatio: 1.15,
+  criticalHealthRatio: 1.08,
+  healthCheckIntervalMs: 30 * 1000, // Every 30 seconds
 
-  // Timing
-  volUpdateIntervalMs: 15 * 60 * 1000, // Compute vol every 15 min
-  rebalanceIntervalMs: 60 * 60 * 1000, // Rebalance every 1 hour
-  regimeCheckIntervalMs: 5 * 60 * 1000, // Check regime every 5 min
+  // Risk limits — tightened
+  maxDrawdownPct: 5, // 5% warning — reduce positions (was 8%)
+  severeDrawdownPct: 8, // 8% emergency — close all
+  maxVegaExposurePct: 10, // 10% (was 15%)
+  maxLeverage: 1.5, // Reduced from 3x — vol strategies need lower leverage
+
+  // Timing — faster for emergency response
+  volUpdateIntervalMs: 10 * 60 * 1000, // Compute vol every 10 min (was 15)
+  rebalanceIntervalMs: 30 * 60 * 1000, // Rebalance every 30 min (was 60)
+  regimeCheckIntervalMs: 3 * 60 * 1000, // Check regime every 3 min (was 5)
+  emergencyCheckIntervalMs: 30 * 1000, // Health/drawdown every 30s
 };
 
 export let vaultAddress = process.env.VAULT_ADDRESS
