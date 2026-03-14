@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.json.bak
+*.keypair.json
+admin.json
+manager.json
+.DS_Store
