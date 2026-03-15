@@ -11,80 +11,85 @@ export const VAULT_CONFIG = {
   assetMintAddress: USDC_MINT,
   assetTokenProgram: SPL_TOKEN_PROGRAM_ID,
 
-  maxCap: new BN(1_000_000 * 1e6), // 1M USDC
+  maxCap: new BN(1_000_000 * 1e6),
   managementFee: new BN(150), // 1.5% annual
   issuanceFee: new BN(0),
-  redemptionFee: new BN(15), // 0.15% withdrawal fee
-  performanceFee: new BN(2000), // 20% performance fee
-  withdrawalWaitingPeriod: new BN(86400), // 24 hours
+  redemptionFee: new BN(15), // 0.15%
+  performanceFee: new BN(2000), // 20%
+  withdrawalWaitingPeriod: new BN(86400),
   lockedProfitDegradationDuration: new BN(3600),
 };
 
 // Volatility strategy parameters
 export const STRATEGY_CONFIG = {
-  // Markets to trade vol on
   primaryMarkets: ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
 
-  // Vol regime thresholds (annualized, in bps)
+  // Vol regime thresholds (annualized, bps)
   regimeThresholds: {
-    veryLow: 2000, // < 20%
-    low: 3500, // 20-35%
-    normal: 5000, // 35-50%
-    high: 7500, // 50-75%
-    extreme: 10000, // > 75%
+    veryLow: 2000,
+    low: 3500,
+    normal: 5000,
+    high: 7500,
+    extreme: 10000,
   },
 
-  // Position sizing by regime (% of total equity)
-  // Reduced across the board — extreme now triggers pre-emptive wind-down
+  // Position sizing by regime — RAISED for revenue (v2)
+  // Previous sizing was too conservative, causing capital stagnation
   regimeSizing: {
-    veryLow: 5, // Minimal — premium too thin (was 10%)
-    low: 20, // Moderate (was 30%)
-    normal: 35, // Optimal — richest risk-adjusted premium (was 50%)
-    high: 15, // Significant scale-back (was 30%)
-    extreme: 0, // Full stop
+    veryLow: 10, // Raised from 5% — even thin premium compounds over weeks
+    low: 25, // Raised from 20%
+    normal: 40, // Raised from 35% — optimal regime, maximize
+    high: 20, // Raised from 15% — high vol has rich premium if funding positive
+    extreme: 0, // Still zero — non-negotiable
   } as Record<string, number>,
 
-  // Pre-extreme wind-down: start reducing when vol > 60% (between high and extreme)
-  preExtremeWindDownBps: 6000, // At 60% vol, begin reducing to 50% of high-regime sizing
+  preExtremeWindDownBps: 6500, // Raised from 6000 — less premature wind-down
 
-  // === FUNDING POLARITY FILTER (HIGHEST PRIORITY — new) ===
-  // The primary condition for entry is positive funding, NOT just high vol.
-  // "If the core of the strategy is harvesting funding, the primary condition
-  //  should be Funding Rate > 0" — reviewer
-  minFundingRateToEnter: 0.0001, // Minimum positive funding rate (per hour)
-  fundingMustBePositive: true, // Hard gate: no entry when funding < 0
-  // Cost gate: expected funding must exceed hedging costs
-  driftTakerFeeBps: 3.5,
-  estimatedSlippageBps: 5,
-  minHoldingPeriodHours: 12, // Shorter hold for vol trades
+  // === FUNDING FILTER ===
+  minFundingRateToEnter: 0.0001,
+  fundingMustBePositive: true,
 
-  // === DYNAMIC DELTA THRESHOLDS (new) ===
-  // Delta threshold tightens with regime — addresses "±5% is too loose" critique
+  // === ORDER EXECUTION (v2 — maker orders) ===
+  useLimitOrders: true,
+  driftMakerFeeBps: -0.2, // Maker REBATE
+  driftTakerFeeBps: 3.5, // Taker fee (fallback)
+  limitOrderSpreadBps: 2, // 0.02% from oracle
+  limitOrderTimeoutMs: 60_000,
+  estimatedSlippageBps: 1, // Lower with limits (was 5)
+  minHoldingPeriodHours: 72, // 3-day hold minimum (was 12h — too short, caused churn)
+
+  // === DYNAMIC DELTA THRESHOLDS ===
   maxDeltaPctByRegime: {
-    veryLow: 5, // Loose in calm markets — cheap to hedge
-    low: 3, // Tighter
-    normal: 2, // Tight — vol premium fragile if directional
-    high: 1, // Very tight — any delta is a gamble
-    extreme: 0.5, // Near-zero — emergency mode
+    veryLow: 5,
+    low: 3,
+    normal: 2,
+    high: 1,
+    extreme: 0.5,
   } as Record<string, number>,
-  hedgeMarket: 0, // SOL-PERP as primary hedge instrument
+  hedgeMarket: 0,
 
-  // === HEALTH MONITORING (new) ===
+  // === EMERGENCY REGIME PUSH (v2 — addresses 10-min latency critique) ===
+  // If price moves > emergencySigmaThreshold standard deviations in a single
+  // health check interval, immediately recompute regime and resize
+  emergencySigmaThreshold: 2.5, // 2.5σ move triggers immediate regime recheck
+  enableEmergencyPush: true,
+
+  // Health monitoring
   minHealthRatio: 1.15,
   criticalHealthRatio: 1.08,
-  healthCheckIntervalMs: 30 * 1000, // Every 30 seconds
+  healthCheckIntervalMs: 30 * 1000,
 
-  // Risk limits — tightened
-  maxDrawdownPct: 5, // 5% warning — reduce positions (was 8%)
-  severeDrawdownPct: 8, // 8% emergency — close all
-  maxVegaExposurePct: 10, // 10% (was 15%)
-  maxLeverage: 1.5, // Reduced from 3x — vol strategies need lower leverage
+  // Risk limits
+  maxDrawdownPct: 5,
+  severeDrawdownPct: 8,
+  maxVegaExposurePct: 10,
+  maxLeverage: 1.5,
 
-  // Timing — faster for emergency response
-  volUpdateIntervalMs: 10 * 60 * 1000, // Compute vol every 10 min (was 15)
-  rebalanceIntervalMs: 30 * 60 * 1000, // Rebalance every 30 min (was 60)
-  regimeCheckIntervalMs: 3 * 60 * 1000, // Check regime every 3 min (was 5)
-  emergencyCheckIntervalMs: 30 * 1000, // Health/drawdown every 30s
+  // === TIMING (v2 — balance between reactivity and cost) ===
+  volUpdateIntervalMs: 5 * 60 * 1000, // 5 min (was 10 — faster regime detection)
+  rebalanceIntervalMs: 2 * 60 * 60 * 1000, // 2 hours (was 30 min — reduce turnover)
+  regimeCheckIntervalMs: 2 * 60 * 1000, // 2 min (was 3 — faster detection)
+  emergencyCheckIntervalMs: 30 * 1000, // 30s (unchanged — safety-critical)
 };
 
 export let vaultAddress = process.env.VAULT_ADDRESS

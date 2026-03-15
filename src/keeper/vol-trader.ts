@@ -72,6 +72,10 @@ export function computeVolTradeSize(
  * This is a short perp that collects funding.
  * Delta is hedged separately.
  */
+/**
+ * Open a vol-selling position using LIMIT orders (maker) when possible.
+ * Maker rebate: -0.002% vs Taker: 0.035% — transforms cost to income.
+ */
 export async function openVolPosition(
   driftClient: DriftClient,
   marketIndex: number,
@@ -81,7 +85,28 @@ export async function openVolPosition(
   const price = oracle.price.toNumber() / PRICE_PRECISION;
   const baseAmount = (sizeUsd / price) * BASE_PRECISION;
 
-  // Short perp to collect funding (vol premium proxy)
+  if (STRATEGY_CONFIG.useLimitOrders) {
+    const spreadMultiplier = 1 + STRATEGY_CONFIG.limitOrderSpreadBps / 10000;
+    const limitPrice = Math.floor(price * spreadMultiplier * PRICE_PRECISION);
+
+    const orderParams = {
+      orderType: OrderType.LIMIT,
+      marketType: MarketType.PERP,
+      marketIndex,
+      direction: PositionDirection.SHORT,
+      baseAssetAmount: new BN(Math.floor(baseAmount)),
+      price: new BN(limitPrice),
+      reduceOnly: false,
+      postOnly: true,
+    };
+
+    const txSig = await driftClient.placePerpOrder(orderParams);
+    console.log(
+      `Vol trade: SHORT LIMIT $${sizeUsd.toFixed(2)} on market ${marketIndex} @ $${(limitPrice / PRICE_PRECISION).toFixed(2)} (maker) | tx: ${txSig}`
+    );
+    return txSig;
+  }
+
   const orderParams = {
     orderType: OrderType.MARKET,
     marketType: MarketType.PERP,
@@ -93,7 +118,7 @@ export async function openVolPosition(
 
   const txSig = await driftClient.placePerpOrder(orderParams);
   console.log(
-    `Vol trade: SHORT $${sizeUsd.toFixed(2)} on market ${marketIndex} | tx: ${txSig}`
+    `Vol trade: SHORT MARKET $${sizeUsd.toFixed(2)} on market ${marketIndex} (taker) | tx: ${txSig}`
   );
   return txSig;
 }
@@ -111,6 +136,28 @@ export async function closeVolPosition(
     return "";
   }
 
+  if (STRATEGY_CONFIG.useLimitOrders) {
+    const oracle = driftClient.getOracleDataForPerpMarket(marketIndex);
+    const price = oracle.price.toNumber() / PRICE_PRECISION;
+    const spreadMultiplier = 1 - STRATEGY_CONFIG.limitOrderSpreadBps / 10000;
+    const limitPrice = Math.floor(price * spreadMultiplier * PRICE_PRECISION);
+
+    const orderParams = {
+      orderType: OrderType.LIMIT,
+      marketType: MarketType.PERP,
+      marketIndex,
+      direction: PositionDirection.LONG,
+      baseAssetAmount: position.baseAssetAmount.abs(),
+      price: new BN(limitPrice),
+      reduceOnly: true,
+      postOnly: true,
+    };
+
+    const txSig = await driftClient.placePerpOrder(orderParams);
+    console.log(`Close LIMIT on market ${marketIndex} (maker) | tx: ${txSig}`);
+    return txSig;
+  }
+
   const orderParams = {
     orderType: OrderType.MARKET,
     marketType: MarketType.PERP,
@@ -121,6 +168,6 @@ export async function closeVolPosition(
   };
 
   const txSig = await driftClient.placePerpOrder(orderParams);
-  console.log(`Closed vol position on market ${marketIndex} | tx: ${txSig}`);
+  console.log(`Close MARKET on market ${marketIndex} (taker) | tx: ${txSig}`);
   return txSig;
 }
