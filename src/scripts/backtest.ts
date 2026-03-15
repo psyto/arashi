@@ -15,34 +15,7 @@ interface FundingRecord {
   oraclePriceTwap: string;
 }
 
-interface BacktestDay {
-  date: string;
-  realizedVol: number;
-  regime: string;
-  positionSizePct: number;
-  fundingEarned: number;
-  fundingPositive: boolean;
-  deltaThreshold: number;
-  hedgeCost: number;
-  netReturn: number;
-  cumulativeReturn: number;
-}
-
-interface BacktestResult {
-  market: string;
-  totalDays: number;
-  annualizedAPY: number;
-  maxDrawdownPct: number;
-  sharpeRatio: number;
-  regimeBreakdown: Record<string, number>; // regime -> days
-  fundingBlockedDays: number;
-  extremePauseDays: number;
-  dailyReturns: number[];
-}
-
-async function fetchFundingHistory(
-  market: string
-): Promise<FundingRecord[]> {
+async function fetchFundingHistory(market: string): Promise<FundingRecord[]> {
   const res = await fetch(
     `${DRIFT_DATA_API}/market/${market}/fundingRates?limit=750`
   );
@@ -52,302 +25,281 @@ async function fetchFundingHistory(
     success: boolean;
     records: FundingRecord[];
   };
-  if (!body.success || !body.records) {
-    throw new Error("No funding data returned");
-  }
+  if (!body.success || !body.records) throw new Error("No data");
 
   return body.records.sort((a, b) => a.ts - b.ts);
 }
 
-async function fetchCandleHistory(
-  market: string,
-  limit: number = 4380
-): Promise<CandleData[]> {
-  const allCandles: CandleData[] = [];
-  // Fetch in chunks — API may limit
+async function fetchCandleHistory(market: string): Promise<CandleData[]> {
   const res = await fetch(
-    `${DRIFT_DATA_API}/market/${market}/candles/60?limit=${Math.min(limit, 750)}`
+    `${DRIFT_DATA_API}/market/${market}/candles/60?limit=750`
   );
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const body = (await res.json()) as { success: boolean; records: CandleData[] };
-  if (body.success && body.records) {
-    allCandles.push(...body.records);
-  }
-  return allCandles.sort((a, b) => a.ts - b.ts);
-}
-
-function backtestMarket(
-  funding: FundingRecord[],
-  candles: CandleData[]
-): BacktestResult {
-  const market = funding[0]?.symbol ?? "unknown";
-
-  // Group funding into daily buckets (24 records per day)
-  const dailyFunding = new Map<string, FundingRecord[]>();
-  for (const rec of funding) {
-    const date = new Date(rec.ts * 1000).toISOString().slice(0, 10);
-    if (!dailyFunding.has(date)) dailyFunding.set(date, []);
-    dailyFunding.get(date)!.push(rec);
-  }
-
-  // Compute rolling vol using sliding window of candles
-  const windowSize = 168; // 7 days of hourly candles
-  const dailyVol = new Map<string, number>();
-
-  for (let i = windowSize; i < candles.length; i += 24) {
-    const window = candles.slice(Math.max(0, i - windowSize), i);
-    const yzVol = computeYangZhangVol(window);
-    const pkVol = computeParkinsonVol(window);
-    const avgVol = (yzVol + pkVol) / 2;
-    const date = new Date(candles[i].ts * 1000).toISOString().slice(0, 10);
-    dailyVol.set(date, avgVol);
-  }
-
-  const dailyReturns: number[] = [];
-  const regimeBreakdown: Record<string, number> = {};
-  let fundingBlockedDays = 0;
-  let extremePauseDays = 0;
-
-  const sortedDates = [...dailyFunding.keys()].sort();
-
-  for (const date of sortedDates) {
-    const dayRecords = dailyFunding.get(date)!;
-    const vol = dailyVol.get(date) ?? 0.4; // Default 40% vol
-    const volBps = Math.round(vol * 10000);
-    const regime = classifyRegime(volBps);
-
-    // Count regime
-    regimeBreakdown[regime] = (regimeBreakdown[regime] ?? 0) + 1;
-
-    // Get position sizing from regime
-    const sizing = STRATEGY_CONFIG.regimeSizing[regime] ?? 0;
-
-    // Check for extreme
-    if (regime === "extreme" || sizing === 0) {
-      extremePauseDays++;
-      dailyReturns.push(0);
-      continue;
-    }
-
-    // Apply pre-extreme wind-down
-    let effectiveSizing = sizing;
-    if (volBps > STRATEGY_CONFIG.preExtremeWindDownBps) {
-      effectiveSizing *= 0.5;
-    }
-
-    // Check funding polarity — hard gate
-    const avgFunding =
-      dayRecords.reduce((sum, r) => sum + parseFloat(r.fundingRateShort), 0) /
-      dayRecords.length;
-
-    if (avgFunding <= 0) {
-      fundingBlockedDays++;
-      dailyReturns.push(0);
-      continue;
-    }
-
-    // Compute daily return from funding
-    const dailyFundingReturn =
-      dayRecords.reduce((sum, r) => sum + parseFloat(r.fundingRateShort), 0) *
-      100; // To percentage
-
-    // Apply sizing and leverage cap
-    const leverage = Math.min(STRATEGY_CONFIG.maxLeverage, 1.5);
-    const positionReturn =
-      dailyFundingReturn * (effectiveSizing / 100) * leverage;
-
-    // Subtract estimated hedging cost (2 hedges per day × fees)
-    const hedgeCostPct = 2 * 2 * (0.035 + 0.05) / 100; // 2 hedges × round-trip
-    const netReturn = positionReturn - hedgeCostPct * (effectiveSizing / 100);
-
-    dailyReturns.push(netReturn);
-  }
-
-  // Compute stats
-  let cumReturn = 1;
-  let peak = 1;
-  let maxDrawdown = 0;
-
-  for (const r of dailyReturns) {
-    cumReturn *= 1 + r / 100;
-    if (cumReturn > peak) peak = cumReturn;
-    const dd = (peak - cumReturn) / peak;
-    if (dd > maxDrawdown) maxDrawdown = dd;
-  }
-
-  const avgDaily =
-    dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length;
-  const stdDaily = Math.sqrt(
-    dailyReturns.reduce((sum, r) => sum + (r - avgDaily) ** 2, 0) /
-      dailyReturns.length
-  );
-  const sharpe =
-    stdDaily > 0 ? (avgDaily / stdDaily) * Math.sqrt(365) : 0;
-  const annualizedAPY = avgDaily * 365;
-
-  return {
-    market,
-    totalDays: sortedDates.length,
-    annualizedAPY,
-    maxDrawdownPct: maxDrawdown * 100,
-    sharpeRatio: sharpe,
-    regimeBreakdown,
-    fundingBlockedDays,
-    extremePauseDays,
-    dailyReturns,
-  };
+  if (!body.success || !body.records) throw new Error("No data");
+  return body.records.sort((a, b) => a.ts - b.ts);
 }
 
 async function main() {
-  console.log("⛈️  Arashi Vault — Historical Backtest\n");
+  console.log("⛈️  Arashi Vault — Historical Backtest (Realistic)\n");
   console.log("Strategy: Delta-neutral vol harvesting with funding polarity filter");
-  console.log("Risk controls: regime sizing, dynamic delta, pre-extreme wind-down, funding gate\n");
+  console.log("Regime sizing: 5-35% of equity | Max leverage: 1.5x");
+  console.log("Costs: 0.035% taker + 0.05% slippage + 2 daily hedges\n");
 
-  const markets = STRATEGY_CONFIG.primaryMarkets;
+  const markets = STRATEGY_CONFIG.primaryMarkets; // SOL, BTC, ETH
 
-  console.log("Fetching historical data...\n");
-
-  const results: BacktestResult[] = [];
+  console.log("Fetching data...");
+  const fundingData = new Map<string, FundingRecord[]>();
+  const candleData = new Map<string, CandleData[]>();
 
   for (const market of markets) {
     try {
-      process.stdout.write(`  ${market}... `);
       const [funding, candles] = await Promise.all([
-        fetchFundingHistory(market, 4380),
-        fetchCandleHistory(market, 4380),
+        fetchFundingHistory(market),
+        fetchCandleHistory(market),
       ]);
-
-      console.log(`${funding.length} funding records, ${candles.length} candles`);
-      const result = backtestMarket(funding, candles);
-      results.push(result);
+      fundingData.set(market, funding);
+      candleData.set(market, candles);
+      console.log(`  ${market}: ${funding.length} funding, ${candles.length} candles`);
     } catch (err) {
-      console.log(`FAILED: ${(err as Error).message}`);
+      console.log(`  ${market}: FAILED`);
     }
   }
 
-  // Per-market results
-  console.log("\n=== Per-Market Results ===");
-  for (const r of results) {
-    console.log(`\n${r.market}:`);
-    console.log(`  Period: ${r.totalDays} days`);
-    console.log(`  Annualized APY: ${r.annualizedAPY.toFixed(2)}%`);
-    console.log(`  Max Drawdown: ${r.maxDrawdownPct.toFixed(2)}%`);
-    console.log(`  Sharpe Ratio: ${r.sharpeRatio.toFixed(2)}`);
-    console.log(`  Funding blocked days: ${r.fundingBlockedDays} (${((r.fundingBlockedDays / r.totalDays) * 100).toFixed(0)}%)`);
-    console.log(`  Extreme regime pause days: ${r.extremePauseDays} (${((r.extremePauseDays / r.totalDays) * 100).toFixed(0)}%)`);
-    console.log(`  Regime breakdown:`);
-    for (const [regime, days] of Object.entries(r.regimeBreakdown)) {
-      console.log(`    ${regime}: ${days} days (${((days / r.totalDays) * 100).toFixed(0)}%)`);
+  // Configuration
+  const INITIAL_EQUITY = 100_000;
+  const MAX_LEVERAGE = STRATEGY_CONFIG.maxLeverage; // 1.5
+  const TAKER_FEE = STRATEGY_CONFIG.driftTakerFeeBps / 10000;
+  const SLIPPAGE = STRATEGY_CONFIG.estimatedSlippageBps / 10000;
+  const ROUND_TRIP_COST = 2 * (TAKER_FEE + SLIPPAGE); // 0.17%
+  const HEDGES_PER_DAY = 2; // Average delta hedges per day
+  const HEDGE_COST_PER = TAKER_FEE + SLIPPAGE; // One-way cost per hedge
+
+  // Group funding by day
+  const allDates = new Set<string>();
+  for (const [, records] of fundingData) {
+    for (const rec of records) {
+      allDates.add(new Date(rec.ts * 1000).toISOString().slice(0, 10));
     }
   }
+  const sortedDates = [...allDates].sort();
 
-  // Portfolio: equal-weight across all markets
-  console.log("\n=== Portfolio Backtest (Equal-Weight) ===");
+  // Compute rolling vol per market per day (using candle data)
+  const dailyVol = new Map<string, Map<string, number>>(); // market -> date -> vol
+  for (const [market, candles] of candleData) {
+    const volMap = new Map<string, number>();
+    const windowSize = 168; // 7 days
+    for (let i = windowSize; i < candles.length; i++) {
+      const window = candles.slice(i - windowSize, i);
+      const yzVol = computeYangZhangVol(window);
+      const pkVol = computeParkinsonVol(window);
+      const avgVol = (yzVol + pkVol) / 2;
+      const date = new Date(candles[i].ts * 1000).toISOString().slice(0, 10);
+      volMap.set(date, avgVol);
+    }
+    dailyVol.set(market, volMap);
+  }
 
-  const minDays = Math.min(...results.map((r) => r.totalDays));
-  const portfolioDailyReturns: number[] = [];
+  // Simulate
+  let equity = INITIAL_EQUITY;
+  let peakEquity = equity;
+  let maxDrawdown = 0;
+  const dailyReturnsPct: number[] = [];
+  let totalTradingCosts = 0;
+  let totalHedgeCosts = 0;
 
-  for (let i = 0; i < minDays; i++) {
-    let dayReturn = 0;
-    let count = 0;
-    for (const r of results) {
-      if (i < r.dailyReturns.length) {
-        dayReturn += r.dailyReturns[i];
-        count++;
+  // Stats
+  let tradingDays = 0;
+  let fundingBlockedDays = 0;
+  let regimeBlockedDays = 0;
+  const regimeDays: Record<string, number> = {};
+
+  interface DayLog {
+    date: string;
+    equity: number;
+    returnPct: number;
+    regime: string;
+    marketsTraded: string[];
+    blocked: string;
+  }
+  const dayLogs: DayLog[] = [];
+
+  for (const date of sortedDates) {
+    // 1. Compute aggregate vol for regime detection
+    let avgVolBps = 3500; // Default: normal
+    let volCount = 0;
+    for (const [market] of dailyVol) {
+      const marketVol = dailyVol.get(market)?.get(date);
+      if (marketVol !== undefined) {
+        avgVolBps += marketVol * 10000;
+        volCount++;
       }
     }
-    portfolioDailyReturns.push(count > 0 ? dayReturn / count : 0);
-  }
+    if (volCount > 0) avgVolBps = avgVolBps / volCount;
+    else avgVolBps = 3500;
 
-  // Portfolio stats
-  let cumReturn = 1;
-  let peak = 1;
-  let maxDrawdown = 0;
-  const monthlyReturns: { month: string; returnPct: number }[] = [];
-  let monthReturn = 1;
-  let currentMonth = "";
+    const regime = classifyRegime(Math.round(avgVolBps));
+    regimeDays[regime] = (regimeDays[regime] ?? 0) + 1;
 
-  for (let i = 0; i < portfolioDailyReturns.length; i++) {
-    const r = portfolioDailyReturns[i];
-    cumReturn *= 1 + r / 100;
-    monthReturn *= 1 + r / 100;
+    // 2. Get position sizing from regime
+    const regimeSizing = (STRATEGY_CONFIG.regimeSizing[regime] ?? 0) / 100;
 
-    if (cumReturn > peak) peak = cumReturn;
-    const dd = (peak - cumReturn) / peak;
+    // Pre-extreme wind-down
+    let effectiveSizing = regimeSizing;
+    if (avgVolBps > STRATEGY_CONFIG.preExtremeWindDownBps) {
+      effectiveSizing *= 0.5;
+    }
+
+    if (effectiveSizing === 0) {
+      regimeBlockedDays++;
+      dailyReturnsPct.push(0);
+      dayLogs.push({ date, equity, returnPct: 0, regime, marketsTraded: [], blocked: "regime" });
+      continue;
+    }
+
+    // 3. Check funding polarity per market
+    let dayReturn = 0;
+    let dayTraded = false;
+    const marketsTraded: string[] = [];
+    let allBlocked = true;
+
+    for (const [market, records] of fundingData) {
+      const dayRecords = records.filter(
+        (r) => new Date(r.ts * 1000).toISOString().slice(0, 10) === date
+      );
+      if (dayRecords.length === 0) continue;
+
+      // Average daily funding (normalized by oracle price)
+      const avgFunding =
+        dayRecords.reduce((s, r) => {
+          const rate = parseFloat(r.fundingRateShort);
+          const oracle = parseFloat(r.oraclePriceTwap);
+          return s + (oracle > 0 ? rate / oracle : 0);
+        }, 0) / dayRecords.length;
+
+      // Funding polarity gate
+      if (avgFunding <= 0) continue;
+
+      // Daily funding total (normalized)
+      const dailyFundingTotal = dayRecords.reduce(
+        (s, r) => {
+          const rate = parseFloat(r.fundingRateShort);
+          const oracle = parseFloat(r.oraclePriceTwap);
+          return s + (oracle > 0 ? rate / oracle : 0);
+        },
+        0
+      );
+
+      allBlocked = false;
+      marketsTraded.push(market);
+
+      // Position size for this market
+      const positionSize =
+        (equity * effectiveSizing * MAX_LEVERAGE) / markets.length;
+
+      // Return from this market = position × daily funding rate
+      const marketReturn = positionSize * dailyFundingTotal;
+      dayReturn += marketReturn;
+      dayTraded = true;
+    }
+
+    if (allBlocked) {
+      fundingBlockedDays++;
+      dailyReturnsPct.push(0);
+      dayLogs.push({ date, equity, returnPct: 0, regime, marketsTraded: [], blocked: "funding" });
+      continue;
+    }
+
+    // 4. Deduct hedging costs (per market traded)
+    const hedgeCost =
+      marketsTraded.length * HEDGES_PER_DAY * HEDGE_COST_PER *
+      ((equity * effectiveSizing * MAX_LEVERAGE) / markets.length);
+    totalHedgeCosts += hedgeCost;
+
+    // 5. Deduct entry/exit costs if position changed (simplified: 1 change per week)
+    let entryCost = 0;
+    // Rough estimate: position changes once per week
+    if (Math.random() < 1 / 7) {
+      entryCost =
+        marketsTraded.length *
+        ROUND_TRIP_COST *
+        ((equity * effectiveSizing * MAX_LEVERAGE) / markets.length);
+      totalTradingCosts += entryCost;
+    }
+
+    const netReturn = dayReturn - hedgeCost - entryCost;
+    equity += netReturn;
+
+    if (equity > peakEquity) peakEquity = equity;
+    const dd = (peakEquity - equity) / peakEquity;
     if (dd > maxDrawdown) maxDrawdown = dd;
 
-    // Monthly tracking
-    const dayIdx = i;
-    const month = Math.floor(dayIdx / 30);
-    const monthStr = `Month ${month + 1}`;
-    if (monthStr !== currentMonth && currentMonth !== "") {
-      monthlyReturns.push({
-        month: currentMonth,
-        returnPct: (monthReturn - 1) * 100,
-      });
-      monthReturn = 1;
-    }
-    currentMonth = monthStr;
-  }
-  if (currentMonth) {
-    monthlyReturns.push({
-      month: currentMonth,
-      returnPct: (monthReturn - 1) * 100,
-    });
+    const returnPct = (netReturn / (equity - netReturn)) * 100;
+    dailyReturnsPct.push(returnPct);
+
+    if (dayTraded) tradingDays++;
+    dayLogs.push({ date, equity, returnPct, regime, marketsTraded, blocked: "" });
   }
 
+  // Results
+  const totalDays = sortedDates.length;
+  const totalReturnPct = ((equity - INITIAL_EQUITY) / INITIAL_EQUITY) * 100;
+  const annualizedAPY = (totalReturnPct / totalDays) * 365;
   const avgDaily =
-    portfolioDailyReturns.reduce((a, b) => a + b, 0) /
-    portfolioDailyReturns.length;
+    dailyReturnsPct.reduce((a, b) => a + b, 0) / dailyReturnsPct.length;
   const stdDaily = Math.sqrt(
-    portfolioDailyReturns.reduce(
-      (sum, r) => sum + (r - avgDaily) ** 2,
-      0
-    ) / portfolioDailyReturns.length
+    dailyReturnsPct.reduce((s, r) => s + (r - avgDaily) ** 2, 0) /
+      dailyReturnsPct.length
   );
-  const sharpe =
-    stdDaily > 0 ? (avgDaily / stdDaily) * Math.sqrt(365) : 0;
-  const totalReturn = (cumReturn - 1) * 100;
-  const annualizedAPY = avgDaily * 365;
+  const sharpe = stdDaily > 0 ? (avgDaily / stdDaily) * Math.sqrt(365) : 0;
 
-  const tradingDays = portfolioDailyReturns.filter((r) => r !== 0).length;
-  const idleDays = portfolioDailyReturns.filter((r) => r === 0).length;
+  console.log("\n════════════════════════════════════════");
+  console.log("           BACKTEST RESULTS");
+  console.log("════════════════════════════════════════\n");
+  console.log(`Period:            ${totalDays} days (${sortedDates[0]} to ${sortedDates[sortedDates.length - 1]})`);
+  console.log(`Starting equity:   $${INITIAL_EQUITY.toLocaleString()}`);
+  console.log(`Ending equity:     $${equity.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`);
+  console.log(`Total return:      ${totalReturnPct.toFixed(2)}%`);
+  console.log(`Annualized APY:    ${annualizedAPY.toFixed(2)}%`);
+  console.log(`Max drawdown:      ${(maxDrawdown * 100).toFixed(2)}%`);
+  console.log(`Sharpe ratio:      ${sharpe.toFixed(2)}`);
+  console.log(`\nActivity:`);
+  console.log(`  Trading days:      ${tradingDays}/${totalDays} (${((tradingDays / totalDays) * 100).toFixed(0)}%)`);
+  console.log(`  Funding blocked:   ${fundingBlockedDays} days (${((fundingBlockedDays / totalDays) * 100).toFixed(0)}%)`);
+  console.log(`  Regime blocked:    ${regimeBlockedDays} days (${((regimeBlockedDays / totalDays) * 100).toFixed(0)}%)`);
+  console.log(`\nCosts:`);
+  console.log(`  Trading costs:     $${totalTradingCosts.toFixed(2)}`);
+  console.log(`  Hedge costs:       $${totalHedgeCosts.toFixed(2)}`);
+  console.log(`  Total costs:       $${(totalTradingCosts + totalHedgeCosts).toFixed(2)} (${(((totalTradingCosts + totalHedgeCosts) / INITIAL_EQUITY) * 100).toFixed(2)}% of initial)`);
+  console.log(`\nRegime breakdown:`);
+  for (const [regime, days] of Object.entries(regimeDays).sort()) {
+    console.log(`  ${regime.padEnd(12)} ${days} days (${((days / totalDays) * 100).toFixed(0)}%)`);
+  }
 
-  console.log(`Period: ${minDays} days`);
-  console.log(`Total return: ${totalReturn.toFixed(2)}%`);
-  console.log(`Annualized APY: ${annualizedAPY.toFixed(2)}%`);
-  console.log(`Max drawdown: ${(maxDrawdown * 100).toFixed(2)}%`);
-  console.log(`Sharpe ratio: ${sharpe.toFixed(2)}`);
-  console.log(`Trading days: ${tradingDays} (${((tradingDays / minDays) * 100).toFixed(0)}%)`);
-  console.log(`Idle days (blocked/extreme): ${idleDays} (${((idleDays / minDays) * 100).toFixed(0)}%)`);
+  // Equity curve
+  console.log("\nEquity curve:");
+  for (let i = 0; i < dayLogs.length; i++) {
+    if (i % 5 === 0 || i === dayLogs.length - 1) {
+      const d = dayLogs[i];
+      const pct = ((d.equity - INITIAL_EQUITY) / INITIAL_EQUITY) * 100;
+      const bar = pct >= 0
+        ? "█".repeat(Math.min(Math.round(pct * 5), 50))
+        : "░".repeat(Math.min(Math.round(Math.abs(pct) * 5), 50));
+      const status = d.blocked ? `[${d.blocked}]` : d.marketsTraded.join(",") || "idle";
+      console.log(
+        `  ${d.date} | $${d.equity.toFixed(0).padStart(9)} | ${pct >= 0 ? "+" : ""}${pct.toFixed(2).padStart(7)}% | ${d.regime.padEnd(8)} | ${status} ${bar}`
+      );
+    }
+  }
 
-  console.log("\nMonthly returns:");
-  monthlyReturns.forEach((m) => {
-    const bar =
-      m.returnPct >= 0
-        ? "█".repeat(Math.min(Math.round(m.returnPct * 10), 50))
-        : "▓".repeat(Math.min(Math.round(Math.abs(m.returnPct) * 10), 50));
-    console.log(
-      `  ${m.month.padEnd(10)}: ${m.returnPct >= 0 ? "+" : ""}${m.returnPct.toFixed(2)}% ${bar}`
-    );
-  });
-
-  // Summary
-  console.log("\n=== Summary ===");
-  console.log(`Target APY (hackathon): ≥10%`);
-  console.log(`Backtest APY: ${annualizedAPY.toFixed(2)}%`);
-  console.log(
-    `Meets target: ${annualizedAPY >= 10 ? "YES ✓" : "CONDITIONAL — depends on vol regime and funding polarity"}`
-  );
-  console.log(`Max drawdown: ${(maxDrawdown * 100).toFixed(2)}%`);
-  console.log(
-    `Within 5% limit: ${maxDrawdown * 100 <= 5 ? "YES ✓" : "WOULD TRIGGER REDUCTION at 5%"}`
-  );
-  console.log(
-    `\nKey insight: Arashi was idle ${((idleDays / minDays) * 100).toFixed(0)}% of the time — ` +
-      `this is the cost of safety. The funding filter and regime detector ` +
-      `protect capital by sitting out dangerous markets.`
-  );
+  // Verdict
+  console.log("\n════════════════════════════════════════");
+  console.log(`Target APY:   ≥10%`);
+  console.log(`Achieved APY: ${annualizedAPY.toFixed(2)}%`);
+  console.log(`Verdict:      ${annualizedAPY >= 10 ? "MEETS TARGET ✓" : annualizedAPY > 0 ? "POSITIVE BUT BELOW TARGET" : "NEGATIVE — CAPITAL PRESERVED BY SITTING OUT"}`);
+  console.log(`Max DD:       ${(maxDrawdown * 100).toFixed(2)}% (limit: 5% reduce / 8% close)`);
+  console.log(`Idle rate:    ${(((fundingBlockedDays + regimeBlockedDays) / totalDays) * 100).toFixed(0)}% — cost of safety`);
+  console.log("════════════════════════════════════════");
 }
 
 main().catch(console.error);
