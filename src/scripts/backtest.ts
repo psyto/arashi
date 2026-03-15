@@ -162,7 +162,7 @@ async function main() {
       continue;
     }
 
-    // 3. Check funding polarity per market
+    // 3. Bidirectional funding harvesting per market
     let dayReturn = 0;
     let dayTraded = false;
     const marketsTraded: string[] = [];
@@ -182,15 +182,22 @@ async function main() {
           return s + (oracle > 0 ? rate / oracle : 0);
         }, 0) / dayRecords.length;
 
-      // Funding polarity gate
-      if (avgFunding <= 0) continue;
+      // Magnitude gate: |funding| must exceed minimum threshold
+      if (Math.abs(avgFunding) < 0.0000001) continue;
 
-      // Daily funding total (normalized)
+      // v3 Bidirectional: use |funding| as revenue regardless of sign
+      // Positive funding → short earns → use fundingRateShort directly
+      // Negative funding → long earns → flip sign (long receives what short pays)
       const dailyFundingTotal = dayRecords.reduce(
         (s, r) => {
           const rate = parseFloat(r.fundingRateShort);
           const oracle = parseFloat(r.oraclePriceTwap);
-          return s + (oracle > 0 ? rate / oracle : 0);
+          if (oracle <= 0) return s;
+          const normalizedRate = rate / oracle;
+          // We always position on the receiving side:
+          // If rate > 0: we short, we receive → positive return
+          // If rate < 0: we long, we receive |rate| → positive return
+          return s + Math.abs(normalizedRate);
         },
         0
       );

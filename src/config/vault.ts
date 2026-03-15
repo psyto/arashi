@@ -45,9 +45,11 @@ export const STRATEGY_CONFIG = {
 
   preExtremeWindDownBps: 6500, // Raised from 6000 — less premature wind-down
 
-  // === FUNDING FILTER ===
-  minFundingRateToEnter: 0.0001,
-  fundingMustBePositive: true,
+  // === FUNDING FILTER (v3 — bidirectional) ===
+  // No longer blocks negative funding — trades BOTH directions
+  // Positive funding → SHORT to collect | Negative funding → LONG to collect
+  minFundingRateToEnter: 0.0001, // Minimum |funding rate| (either direction)
+  fundingMustBePositive: false, // v3: DISABLED — we trade both ways
 
   // === ORDER EXECUTION (v2 — maker orders) ===
   useLimitOrders: true,

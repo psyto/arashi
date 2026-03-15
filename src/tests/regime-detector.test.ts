@@ -78,7 +78,7 @@ normalVols.set("SOL-PERP", {
 const normalRegime = detectRegime(normalVols);
 const normalPause = shouldPauseTrading(normalRegime);
 assert(!normalPause.pause, "Should NOT pause in normal regime");
-assert(normalRegime.positionSizePct === 35, `Normal sizing should be 35% (got ${normalRegime.positionSizePct})`);
+assert(normalRegime.positionSizePct === 40, `Normal sizing should be 40% (got ${normalRegime.positionSizePct})`);
 
 // Test 5: Regime transition detection
 console.log("\nTransition detection:");

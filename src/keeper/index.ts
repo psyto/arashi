@@ -3,6 +3,7 @@ import {
   DriftClient,
   Wallet,
   BulkAccountLoader,
+  BN,
 } from "@drift-labs/sdk";
 import { getConnection, loadKeypair, sleep } from "../utils/helpers";
 import { STRATEGY_CONFIG } from "../config/vault";
@@ -139,7 +140,7 @@ async function updateVolatility(): Promise<void> {
 }
 
 async function updateFunding(): Promise<void> {
-  console.log("\n--- Funding Polarity Check ---");
+  console.log("\n--- Funding Direction Analysis ---");
 
   for (const market of STRATEGY_CONFIG.primaryMarkets) {
     try {
@@ -147,9 +148,10 @@ async function updateFunding(): Promise<void> {
       fundingStates.set(market, funding);
 
       const gate = passesFundingGate(funding);
+      const arrow = funding.isPositive ? "↓ SHORT" : "↑ LONG";
       const symbol = gate.pass ? "✓" : "✗";
       console.log(
-        `  ${symbol} ${market}: ${funding.annualizedPct.toFixed(2)}% APY (${gate.pass ? "PASS" : gate.reason})`
+        `  ${symbol} ${market}: ${funding.annualizedPct.toFixed(2)}% APY → ${arrow} (${gate.pass ? gate.reason : gate.reason})`
       );
     } catch (err) {
       console.error(`  Failed to fetch funding for ${market}:`, err);
@@ -219,19 +221,19 @@ async function runRebalance(driftClient: DriftClient): Promise<void> {
     const volState = volStates.get(market.name);
     if (!volState) continue;
 
-    // === FUNDING GATE (highest priority filter) ===
+    // === FUNDING ANALYSIS (bidirectional) ===
     const funding = fundingStates.get(market.name);
-    if (funding) {
-      const gate = passesFundingGate(funding);
-      if (!gate.pass) {
-        // Close position if funding turned bad
-        if (activeMarkets.has(market.index)) {
-          console.log(`Closing ${market.name}: ${gate.reason}`);
-          await closeVolPosition(driftClient, market.index);
-          activeMarkets.delete(market.index);
-        }
-        continue;
+    if (!funding) continue;
+
+    const gate = passesFundingGate(funding);
+    if (!gate.pass) {
+      // |Funding| too small to cover costs — close if we have a position
+      if (activeMarkets.has(market.index)) {
+        console.log(`Closing ${market.name}: ${gate.reason}`);
+        await closeVolPosition(driftClient, market.index);
+        activeMarkets.delete(market.index);
       }
+      continue;
     }
 
     const { sizeUsd, skip, reason } = computeVolTradeSize(
@@ -241,7 +243,6 @@ async function runRebalance(driftClient: DriftClient): Promise<void> {
       market.index
     );
 
-    // Apply pre-extreme wind-down
     let adjustedSize = sizeUsd;
     if (avgVolBps > STRATEGY_CONFIG.preExtremeWindDownBps) {
       adjustedSize *= 0.5;
@@ -256,13 +257,40 @@ async function runRebalance(driftClient: DriftClient): Promise<void> {
       continue;
     }
 
-    // Open position if not already in
+    // Check if we need to flip direction (funding changed sign)
+    if (activeMarkets.has(market.index)) {
+      // Check current position direction vs desired
+      const user = driftClient.getUser();
+      const pos = user.getPerpPosition(market.index);
+      if (pos && !pos.baseAssetAmount.isZero()) {
+        const currentlyLong = pos.baseAssetAmount.gt(new BN(0));
+        const shouldBeLong = gate.direction === "long";
+        if (currentlyLong !== shouldBeLong) {
+          console.log(
+            `Flipping ${market.name}: ${currentlyLong ? "LONG→SHORT" : "SHORT→LONG"} (funding direction changed)`
+          );
+          await closeVolPosition(driftClient, market.index);
+          activeMarkets.delete(market.index);
+          // Will re-enter below with new direction
+        }
+      }
+    }
+
+    // Open position in the correct funding direction
     if (!activeMarkets.has(market.index)) {
       try {
-        await openVolPosition(driftClient, market.index, adjustedSize);
+        console.log(
+          `Opening ${market.name}: ${gate.direction.toUpperCase()} (${gate.reason})`
+        );
+        await openVolPosition(
+          driftClient,
+          market.index,
+          adjustedSize,
+          gate.direction
+        );
         activeMarkets.add(market.index);
       } catch (err) {
-        console.error(`Failed to open vol position on ${market.name}:`, err);
+        console.error(`Failed to open position on ${market.name}:`, err);
       }
     }
   }

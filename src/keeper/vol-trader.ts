@@ -10,31 +10,52 @@ import { STRATEGY_CONFIG } from "../config/vault";
 import { VolState } from "./vol-engine";
 import { RegimeState } from "./regime-detector";
 
+export type FundingDirection = "short" | "long";
+
 export interface VolPosition {
   marketIndex: number;
   marketName: string;
-  longSize: number; // In base asset
-  shortSize: number; // In base asset
-  netDelta: number; // USD
+  direction: FundingDirection;
+  sizeUsd: number;
+  netDelta: number;
   entryVol: number;
+  entryFundingRate: number;
   entryTimestamp: number;
 }
 
 /**
- * Approximate vol selling via "synthetic short straddle" on Drift perps:
+ * Bidirectional Funding Harvester (v3)
  *
- * A short straddle profits when price stays near strike and loses on big moves.
- * We approximate this by:
- * 1. Entering a short perp position (captures funding when positive)
- * 2. Setting tight stop losses on both sides (limits gamma exposure)
- * 3. Collecting the funding rate as "vol premium"
+ * Previous versions only shorted perps (collect funding when positive).
+ * This fails in bear markets where funding is negative (shorts pay longs).
  *
- * The key insight: in high-vol regimes, funding rates tend to be higher
- * (longs pay more to maintain leveraged positions), so short perp positions
- * collect more premium — effectively "selling volatility."
+ * v3 insight: funding flows BOTH ways.
+ * - Positive funding → SHORT perps (longs pay shorts)
+ * - Negative funding → LONG perps (shorts pay longs)
  *
- * Delta is managed separately by the delta-hedger module.
+ * Arashi now earns yield regardless of market direction by always
+ * positioning on the receiving side of funding.
+ *
+ * Delta is still managed by the delta-hedger module — the hedge
+ * offsets the directional exposure from the funding position.
  */
+export function determineFundingDirection(
+  hourlyFundingRate: number
+): { direction: FundingDirection; reason: string } {
+  if (hourlyFundingRate > 0) {
+    return {
+      direction: "short",
+      reason: `Positive funding (${(hourlyFundingRate * 100).toFixed(4)}%) → SHORT to collect`,
+    };
+  } else if (hourlyFundingRate < 0) {
+    return {
+      direction: "long",
+      reason: `Negative funding (${(hourlyFundingRate * 100).toFixed(4)}%) → LONG to collect`,
+    };
+  }
+  return { direction: "short", reason: "Zero funding — defaulting to short" };
+}
+
 export function computeVolTradeSize(
   totalEquity: number,
   regime: RegimeState,
@@ -43,24 +64,18 @@ export function computeVolTradeSize(
 ): { sizeUsd: number; skip: boolean; reason: string } {
   const { maxLeverage, maxVegaExposurePct } = STRATEGY_CONFIG;
 
-  // Position size based on regime
   const regimePct = regime.positionSizePct;
   if (regimePct === 0) {
     return { sizeUsd: 0, skip: true, reason: "Regime says zero sizing" };
   }
 
-  // Base allocation for this market
   const perMarketPct =
     regimePct / STRATEGY_CONFIG.primaryMarkets.length;
   let sizeUsd = (totalEquity * perMarketPct) / 100;
 
-  // Cap by leverage
   const maxSizeByLeverage = totalEquity * maxLeverage;
   sizeUsd = Math.min(sizeUsd, maxSizeByLeverage);
 
-  // Cap by vega exposure
-  // Rough vega approximation: position_size * sqrt(T) * vol_sensitivity
-  // For short-dated positions, limit total vega to maxVegaExposurePct of equity
   const vegaLimit = (totalEquity * maxVegaExposurePct) / 100;
   sizeUsd = Math.min(sizeUsd, vegaLimit);
 
@@ -68,32 +83,36 @@ export function computeVolTradeSize(
 }
 
 /**
- * Open a vol-selling position on a market.
- * This is a short perp that collects funding.
- * Delta is hedged separately.
- */
-/**
- * Open a vol-selling position using LIMIT orders (maker) when possible.
- * Maker rebate: -0.002% vs Taker: 0.035% — transforms cost to income.
+ * Open a funding position in the direction that EARNS funding.
+ * SHORT when funding positive, LONG when funding negative.
+ * Uses LIMIT orders (maker) for fee rebates.
  */
 export async function openVolPosition(
   driftClient: DriftClient,
   marketIndex: number,
-  sizeUsd: number
+  sizeUsd: number,
+  direction: FundingDirection = "short"
 ): Promise<string> {
   const oracle = driftClient.getOracleDataForPerpMarket(marketIndex);
   const price = oracle.price.toNumber() / PRICE_PRECISION;
   const baseAmount = (sizeUsd / price) * BASE_PRECISION;
 
+  const perpDirection =
+    direction === "short" ? PositionDirection.SHORT : PositionDirection.LONG;
+
   if (STRATEGY_CONFIG.useLimitOrders) {
-    const spreadMultiplier = 1 + STRATEGY_CONFIG.limitOrderSpreadBps / 10000;
+    // For SHORT: place above oracle (willing to sell higher)
+    // For LONG: place below oracle (willing to buy lower)
+    const spreadSign = direction === "short" ? 1 : -1;
+    const spreadMultiplier =
+      1 + spreadSign * (STRATEGY_CONFIG.limitOrderSpreadBps / 10000);
     const limitPrice = Math.floor(price * spreadMultiplier * PRICE_PRECISION);
 
     const orderParams = {
       orderType: OrderType.LIMIT,
       marketType: MarketType.PERP,
       marketIndex,
-      direction: PositionDirection.SHORT,
+      direction: perpDirection,
       baseAssetAmount: new BN(Math.floor(baseAmount)),
       price: new BN(limitPrice),
       reduceOnly: false,
@@ -102,29 +121,30 @@ export async function openVolPosition(
 
     const txSig = await driftClient.placePerpOrder(orderParams);
     console.log(
-      `Vol trade: SHORT LIMIT $${sizeUsd.toFixed(2)} on market ${marketIndex} @ $${(limitPrice / PRICE_PRECISION).toFixed(2)} (maker) | tx: ${txSig}`
+      `Vol trade: ${direction.toUpperCase()} LIMIT $${sizeUsd.toFixed(2)} on market ${marketIndex} @ $${(limitPrice / PRICE_PRECISION).toFixed(2)} (maker) | tx: ${txSig}`
     );
     return txSig;
   }
 
+  // Fallback: market order
   const orderParams = {
     orderType: OrderType.MARKET,
     marketType: MarketType.PERP,
     marketIndex,
-    direction: PositionDirection.SHORT,
+    direction: perpDirection,
     baseAssetAmount: new BN(Math.floor(baseAmount)),
     reduceOnly: false,
   };
 
   const txSig = await driftClient.placePerpOrder(orderParams);
   console.log(
-    `Vol trade: SHORT MARKET $${sizeUsd.toFixed(2)} on market ${marketIndex} (taker) | tx: ${txSig}`
+    `Vol trade: ${direction.toUpperCase()} MARKET $${sizeUsd.toFixed(2)} on market ${marketIndex} (taker) | tx: ${txSig}`
   );
   return txSig;
 }
 
 /**
- * Close a vol position — unwind the short
+ * Close a vol position — unwind in the opposite direction.
  */
 export async function closeVolPosition(
   driftClient: DriftClient,
@@ -136,17 +156,26 @@ export async function closeVolPosition(
     return "";
   }
 
+  // Determine close direction: opposite of current position
+  const isLong = position.baseAssetAmount.gt(new BN(0));
+  const closeDirection = isLong
+    ? PositionDirection.SHORT
+    : PositionDirection.LONG;
+
   if (STRATEGY_CONFIG.useLimitOrders) {
     const oracle = driftClient.getOracleDataForPerpMarket(marketIndex);
     const price = oracle.price.toNumber() / PRICE_PRECISION;
-    const spreadMultiplier = 1 - STRATEGY_CONFIG.limitOrderSpreadBps / 10000;
+    // Close long → sell (place above), close short → buy (place below)
+    const spreadSign = isLong ? 1 : -1;
+    const spreadMultiplier =
+      1 + spreadSign * (STRATEGY_CONFIG.limitOrderSpreadBps / 10000);
     const limitPrice = Math.floor(price * spreadMultiplier * PRICE_PRECISION);
 
     const orderParams = {
       orderType: OrderType.LIMIT,
       marketType: MarketType.PERP,
       marketIndex,
-      direction: PositionDirection.LONG,
+      direction: closeDirection,
       baseAssetAmount: position.baseAssetAmount.abs(),
       price: new BN(limitPrice),
       reduceOnly: true,
@@ -154,7 +183,9 @@ export async function closeVolPosition(
     };
 
     const txSig = await driftClient.placePerpOrder(orderParams);
-    console.log(`Close LIMIT on market ${marketIndex} (maker) | tx: ${txSig}`);
+    console.log(
+      `Close LIMIT on market ${marketIndex} (maker) | tx: ${txSig}`
+    );
     return txSig;
   }
 
@@ -162,7 +193,7 @@ export async function closeVolPosition(
     orderType: OrderType.MARKET,
     marketType: MarketType.PERP,
     marketIndex,
-    direction: PositionDirection.LONG,
+    direction: closeDirection,
     baseAssetAmount: position.baseAssetAmount.abs(),
     reduceOnly: true,
   };

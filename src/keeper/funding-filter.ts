@@ -1,24 +1,27 @@
 import { DRIFT_DATA_API } from "../config/constants";
 import { STRATEGY_CONFIG } from "../config/vault";
+import { FundingDirection } from "./vol-trader";
 
 export interface MarketFundingState {
   market: string;
-  fundingRate: number; // Per-hour rate
+  fundingRate: number; // Per-hour rate (normalized)
   annualizedPct: number;
   isPositive: boolean;
+  direction: FundingDirection; // Which side earns
+  magnitude: number; // Absolute annualized %
 }
 
 /**
- * Funding polarity filter.
+ * Bidirectional Funding Analysis (v3)
  *
- * Addresses the critical review finding:
- * "If the core of the strategy is harvesting funding, the primary condition
- *  should be Funding Rate > 0, not just the volatility coefficient."
+ * Previous versions blocked entry when funding was negative.
+ * v3 recognizes that negative funding = opportunity for LONGS.
  *
- * Even if vol is high and the regime says "enter," we MUST NOT enter
- * when funding is negative — that means we'd be PAYING, not earning.
- * In panic-driven bear markets, funding often turns deeply negative
- * (shorts pay longs), and high vol would incorrectly signal opportunity.
+ * - Positive funding → shorts earn → direction = "short"
+ * - Negative funding → longs earn → direction = "long"
+ *
+ * The only case we block is when |funding| is too small to
+ * cover trading costs (the cost gate still applies).
  */
 export async function fetchMarketFunding(
   market: string
@@ -39,57 +42,71 @@ export async function fetchMarketFunding(
 
   const entry = body.markets.find((m) => m.symbol === market);
   if (!entry) {
-    return { market, fundingRate: 0, annualizedPct: 0, isPositive: false };
+    return {
+      market,
+      fundingRate: 0,
+      annualizedPct: 0,
+      isPositive: false,
+      direction: "short",
+      magnitude: 0,
+    };
   }
 
   const rate24h = parseFloat(entry.fundingRates["24h"]);
+  const annualized = rate24h * 24 * 365 * 100;
+
   return {
     market,
     fundingRate: rate24h,
-    annualizedPct: rate24h * 24 * 365 * 100,
+    annualizedPct: annualized,
     isPositive: rate24h > 0,
+    direction: rate24h >= 0 ? "short" : "long",
+    magnitude: Math.abs(annualized),
   };
 }
 
 /**
- * Check if a market passes the funding polarity gate.
- * Returns false if:
- * 1. Funding is negative (hard gate)
- * 2. Funding is positive but below the cost threshold
+ * Check if a market's funding rate is worth trading (either direction).
+ *
+ * v3: No longer blocks negative funding — instead determines direction.
+ * Only blocks when |funding| is too small to cover costs.
  */
 export function passesFundingGate(funding: MarketFundingState): {
   pass: boolean;
+  direction: FundingDirection;
   reason: string;
 } {
-  // Hard gate: funding must be positive
-  if (STRATEGY_CONFIG.fundingMustBePositive && !funding.isPositive) {
+  // Magnitude gate: |funding| must be above minimum threshold
+  if (Math.abs(funding.fundingRate) < STRATEGY_CONFIG.minFundingRateToEnter) {
     return {
       pass: false,
-      reason: `Funding negative (${(funding.fundingRate * 100).toFixed(4)}%) — would pay, not earn`,
+      direction: funding.direction,
+      reason: `|Funding| too low (${(Math.abs(funding.fundingRate) * 100).toFixed(4)}%) — below minimum threshold`,
     };
   }
 
-  // Minimum rate gate
-  if (funding.fundingRate < STRATEGY_CONFIG.minFundingRateToEnter) {
-    return {
-      pass: false,
-      reason: `Funding too low (${(funding.fundingRate * 100).toFixed(4)}%) — below minimum threshold`,
-    };
-  }
-
-  // Cost gate: expected funding must exceed round-trip costs
-  const { driftTakerFeeBps, estimatedSlippageBps, minHoldingPeriodHours } =
+  // Cost gate: expected |funding| must exceed round-trip costs
+  const { estimatedSlippageBps, driftMakerFeeBps, useLimitOrders, driftTakerFeeBps, minHoldingPeriodHours } =
     STRATEGY_CONFIG;
-  const roundTripCostBps = 2 * (driftTakerFeeBps + estimatedSlippageBps);
+  const perTradeCost = useLimitOrders
+    ? Math.max(0, estimatedSlippageBps + driftMakerFeeBps)
+    : estimatedSlippageBps + driftTakerFeeBps;
+  const roundTripCostBps = 2 * perTradeCost;
   const expectedFundingBps =
-    (funding.annualizedPct * 100 * minHoldingPeriodHours) / 8760;
+    (funding.magnitude * 100 * minHoldingPeriodHours) / 8760;
 
   if (expectedFundingBps < roundTripCostBps) {
     return {
       pass: false,
-      reason: `Funding (${expectedFundingBps.toFixed(1)} bps/${minHoldingPeriodHours}h) < costs (${roundTripCostBps.toFixed(1)} bps round-trip)`,
+      direction: funding.direction,
+      reason: `|Funding| (${expectedFundingBps.toFixed(1)} bps/${minHoldingPeriodHours}h) < costs (${roundTripCostBps.toFixed(1)} bps)`,
     };
   }
 
-  return { pass: true, reason: "Funding positive and cost-viable" };
+  const dirLabel = funding.direction === "short" ? "SHORT (longs pay)" : "LONG (shorts pay)";
+  return {
+    pass: true,
+    direction: funding.direction,
+    reason: `${dirLabel} — ${funding.magnitude.toFixed(1)}% APY`,
+  };
 }
