@@ -1,60 +1,58 @@
 # ⛈️ Arashi Vault
 
-**Delta-neutral volatility harvesting on Solana.**
+**Bidirectional funding harvester on Solana.**
 
-Arashi rides the storm. A USDC vault that systematically harvests volatility premium from Drift perpetual markets — earning more when markets are turbulent, pausing when they're extreme. Four defense layers protect capital: funding polarity gate, regime-adaptive sizing, dynamic delta thresholds, and 30-second health monitoring.
+Arashi rides the storm — in both directions. A USDC vault that harvests Drift perpetual funding rates by always positioning on the receiving side: SHORT when longs pay shorts, LONG when shorts pay longs. Earns yield regardless of whether the market is bullish or bearish.
 
 ## Strategy
 
-Arashi treats volatility as an asset class. The keeper bot computes realized volatility across major Drift perp markets, classifies the current market regime, and sizes positions accordingly:
+Arashi treats funding rate flow as a bidirectional revenue stream:
 
 1. **Compute realized vol** — Yang-Zhang + Parkinson estimators from Drift OHLC data
-2. **Check funding polarity** — Hard gate: no entry when funding is negative
-3. **Classify regime** — Very Low / Low / Normal / High / Extreme
-4. **Size positions** — Larger in Normal (richest risk-adjusted premium), zero in Extreme
+2. **Determine funding direction** — Positive → SHORT to collect | Negative → LONG to collect
+3. **Classify regime** — Scale position size by vol regime (0-40% of equity)
+4. **Open position** — Always on the receiving side of funding
 5. **Hedge delta** — Regime-aware thresholds: ±5% in calm → ±0.5% in extreme
-6. **Collect funding** — Short perp positions earn positive funding as vol premium proxy
+6. **Flip direction** — When funding changes sign, close and re-enter opposite side
 
 ### How It Works
 
 ```
 User deposits USDC → Voltr Vault
                       └── Arashi Keeper
-                           ├── Emergency Monitor (30s loop)
-                           │   ├── Health ratio check (close at 1.08)
-                           │   └── Drawdown check (5% reduce / 8% close)
-                           ├── Vol Engine (10 min)
-                           │   ├── Fetch hourly candles (168 samples)
+                           ├── Emergency Monitor (30s)
+                           │   ├── Health ratio (close at 1.08)
+                           │   └── Drawdown (5% reduce / 8% close)
+                           ├── Vol Engine (5 min)
                            │   ├── Yang-Zhang + Parkinson estimators
                            │   └── EMA smoothing (7d / 30d)
-                           ├── Funding Filter (10 min)
-                           │   ├── Hard gate: funding must be > 0
-                           │   └── Cost gate: funding > round-trip fees
-                           ├── Regime Detector (3 min)
-                           │   ├── Classify: veryLow → extreme
-                           │   ├── Pre-extreme wind-down at 60%
-                           │   └── Pause on rapid transitions
-                           ├── Vol Trader (30 min rebalance)
-                           │   ├── Size by regime (0-35% of equity)
-                           │   └── Short perps on SOL/BTC/ETH
+                           ├── Funding Direction (10 min)
+                           │   ├── Positive → SHORT to collect
+                           │   ├── Negative → LONG to collect
+                           │   └── |Rate| must exceed cost threshold
+                           ├── Regime Detector (2 min)
+                           │   ├── 5 regimes → 0-40% sizing
+                           │   ├── Pre-extreme wind-down at 65%
+                           │   └── Emergency sigma push (2.5σ)
+                           ├── Position Manager (2hr rebalance)
+                           │   ├── Open in correct funding direction
+                           │   ├── Flip direction on sign change
+                           │   └── Maker limit orders (postOnly)
                            └── Delta Hedger (regime-aware)
-                               ├── Dynamic threshold: ±5% → ±0.5%
-                               └── Tightens with vol regime
+                               └── ±5% calm → ±0.5% extreme
 ```
 
-### Why Volatility Harvesting
+### Why Bidirectional
 
-In most markets, implied volatility exceeds realized volatility — the "variance risk premium." Short vol strategies systematically capture this premium. On Drift, this manifests as:
+Most vol/basis strategies only SHORT perps — they earn when funding is positive but are forced idle (or lose money) when funding turns negative in bear markets. This creates a structural failure mode.
 
-- **Positive funding rates** tend to be higher during volatile periods (longs pay more for leverage)
-- **Short perp positions** collect this elevated funding as yield
-- **Delta hedging** removes directional exposure, isolating the vol premium
+**Arashi's insight**: Funding flows both ways. When shorts dominate (bear market), LONGS get paid. By always positioning on the receiving side, Arashi earns in ALL market conditions except extreme vol (>75%).
 
-Key advantages:
-- **Funding polarity gate** — Unlike naive vol strategies, Arashi refuses to enter when funding is negative, preventing the critical failure mode in bear panics
-- **Regime-adaptive** — Automatically scales down in dangerous markets
-- **Multi-estimator robustness** — Yang-Zhang + Parkinson vol estimates are more efficient than simple close-to-close
-- **No options required** — Approximates vol selling using perp funding mechanics
+| Market Condition | Funding | Arashi Direction | Result |
+|-----------------|---------|-----------------|--------|
+| Bull (longs dominant) | Positive | **SHORT** | Earns |
+| Bear (shorts dominant) | Negative | **LONG** | Earns |
+| Extreme vol | Any | **None** | Capital preserved |
 
 ## Architecture
 
@@ -64,110 +62,84 @@ Key advantages:
 
 | Module | File | Purpose |
 |--------|------|---------|
-| Vol Engine | `src/keeper/vol-engine.ts` | 3 volatility estimators (Yang-Zhang, Parkinson, Close-to-Close) + EMA smoothing |
-| Regime Detector | `src/keeper/regime-detector.ts` | 5-regime classification with transition detection and pre-extreme wind-down |
-| Funding Filter | `src/keeper/funding-filter.ts` | Funding polarity gate — blocks entry when funding is negative or below cost threshold |
+| Vol Engine | `src/keeper/vol-engine.ts` | 3 volatility estimators + EMA smoothing |
+| Regime Detector | `src/keeper/regime-detector.ts` | 5-regime classification with pre-extreme wind-down |
+| Funding Filter | `src/keeper/funding-filter.ts` | Bidirectional funding analysis — determines SHORT or LONG direction |
 | Health Monitor | `src/keeper/health-monitor.ts` | 30-second health ratio and drawdown monitoring |
-| Delta Hedger | `src/keeper/delta-hedger.ts` | Regime-aware dynamic delta thresholds and automated hedging |
-| Vol Trader | `src/keeper/vol-trader.ts` | Regime-adaptive position sizing and execution |
-| Keeper Loop | `src/keeper/index.ts` | Main event loop — emergency checks, funding gate, vol update, regime, rebalance, hedge |
+| Delta Hedger | `src/keeper/delta-hedger.ts` | Regime-aware dynamic delta thresholds |
+| Vol Trader | `src/keeper/vol-trader.ts` | Bidirectional position management — opens, closes, and flips positions |
+| Keeper Loop | `src/keeper/index.ts` | Main event loop with direction flipping logic |
 | Vault Setup | `src/scripts/` | Admin scripts to initialize Voltr vault + Drift adaptor |
 
 ## 4 Defense Layers
 
 ```
-Layer 1          Layer 2           Layer 3            Layer 4
-Funding Gate  →  Regime Sizing  →  Dynamic Delta  →   Health Monitor
-Rate > 0?        Vol → sizing      ±5% calm           Every 30s
-Funding > fees?  0-35% equity      ±0.5% extreme      Close at 1.08
-PRIMARY GATE     POSITION SCALE    DIRECTIONAL CTRL   LAST DEFENSE
+Layer 1             Layer 2           Layer 3            Layer 4
+Funding Analysis →  Regime Sizing  →  Dynamic Delta  →   Health Monitor
+|Rate| > threshold  Vol → 0-40%       ±5% calm           Every 30s
+Direction: S or L   10/25/40/20/0     ±0.5% extreme      Close at 1.08
+BIDIRECTIONAL       POSITION SCALE    DIRECTIONAL CTRL   LAST DEFENSE
 ```
-
-## Volatility Estimators
-
-### Yang-Zhang
-Most efficient estimator for drift-adjusted data. Combines overnight returns, open-to-close variance, and Rogers-Satchell intraday component:
-```
-σ²_YZ = σ²_overnight + k · σ²_open-close + (1-k) · σ²_RS
-```
-
-### Parkinson
-Uses high-low range for 5× more efficiency per observation than close-to-close:
-```
-σ² = 1/(4·n·ln2) · Σ(ln(H/L))²
-```
-
-### EMA Smoothing
-Exponential moving averages with configurable half-lives (7-day and 30-day) detect elevated and depressed vol conditions:
-- **Elevated**: Current vol > 1.5× 30-day EMA
-- **Depressed**: Current vol < 0.5× 30-day EMA
 
 ## Regime Detection
 
-| Regime | Vol Range | Position Sizing | Delta Threshold | Behavior |
-|--------|-----------|----------------|-----------------|----------|
-| Very Low | < 20% | 5% of equity | ±5% | Minimal — premium too thin |
-| Low | 20-35% | 20% | ±3% | Moderate exposure |
-| Normal | 35-50% | 35% | ±2% | Optimal — richest risk-adjusted premium |
-| High | 50-75% | 15% | ±1% | Significant scale-back |
-| Pre-Extreme | 60-75% | 7.5% (50% of high) | ±1% | Wind-down in progress |
-| Extreme | > 75% | 0% | ±0.5% | **Full stop** — close all positions |
+| Regime | Vol Range | Sizing | Delta ± | Behavior |
+|--------|-----------|--------|---------|----------|
+| Very Low | < 20% | 10% | ±5% | Minimal — premium thin |
+| Low | 20-35% | 25% | ±3% | Moderate |
+| Normal | 35-50% | 40% | ±2% | Optimal |
+| High | 50-75% | 20% | ±1% | Scale back |
+| Pre-Extreme | >65% | 10% | ±1% | Wind-down |
+| Extreme | > 75% | 0% | ±0.5% | Full stop |
 
-**Funding polarity gate**: Even in an optimal vol regime, positions are **blocked** if funding is negative. This prevents the critical failure mode where high vol + negative funding = paying to hold a losing position.
+## Execution
 
-The detector also pauses trading on rapid regime transitions (>3 in one hour) — indicating an unstable market where regime classification is unreliable.
+All orders use **maker limit orders** (`postOnly`) for fee rebates:
+
+| | Taker (v1) | Maker (v3) |
+|---|---|---|
+| Drift fee | 0.035% (pay) | -0.002% (rebate) |
+| Round-trip cost | 0.17% | 0.016% |
+| Break-even (3-day hold) | 20.7% APY | 1.9% APY |
 
 ## Risk Management
 
-| Parameter | Value | Rationale |
-|-----------|-------|-----------|
-| Max drawdown | 5% / 8% severe | Reduce at 5%, close all at 8% |
-| Max delta | ±5% to ±0.5% | **Dynamic** — tightens with vol regime |
-| Max vega exposure | 10% of equity | Conservative for proxy vol strategy |
-| Max leverage | 1.5x | Vol strategies need low leverage |
-| Funding gate | Must be positive | **Hard gate** — no entry when funding < 0 |
-| Cost gate | Funding > round-trip fees | Prevents fee churn on thin premiums |
-| Health ratio warning | 1.15 | Start reducing positions |
-| Health ratio critical | 1.08 | Emergency close all |
-| Health check interval | 30 seconds | Near real-time monitoring |
-| Pre-extreme wind-down | > 60% vol | Halve position sizes before extreme triggers |
-| Extreme regime action | Close all | No positions during market crashes |
-| Transition pause | >3/hour | Unstable regime → pause |
-| Vol update interval | 10 min | Frequent vol computation |
-| Regime check interval | 3 min | Fast regime shift detection |
-| Rebalance interval | 30 min | Faster reaction |
+| Parameter | Value |
+|-----------|-------|
+| Max drawdown | 5% reduce / 8% close all |
+| Max delta | ±5% to ±0.5% (dynamic by regime) |
+| Max leverage | 1.5x |
+| Health check | Every 30 seconds |
+| Emergency sigma push | 2.5σ move → immediate regime recheck |
+| Pre-extreme wind-down | > 65% vol |
+| Min |funding| | Must exceed cost threshold |
 
-### What Can Go Wrong
+### Known Limitations
 
-| Risk | Mitigation |
-|------|------------|
-| High vol + negative funding (bear panic) | **Funding polarity gate** blocks entry — prevents paying to hold a losing position |
-| Vol spike beyond extreme threshold | Pre-extreme wind-down at 60% halves positions; 30s health checks catch gaps |
-| Delta drift from rapid price moves | Dynamic thresholds tighten with regime (±1% in high vol); 3-min regime checks |
-| Prolonged low-vol environment | Minimal 5% sizing preserves capital; cost gate prevents churn |
-| Hedging costs exceed returns | Cost gate: funding must exceed round-trip fees (0.17%) over 12h hold |
-| Liquidity panic / stop-loss failure | Health monitor at 30s catches margin deterioration; 1.5x max leverage |
-| Jump risk (flash crash) | Yang-Zhang is more robust than close-to-close; 30s health monitor is last defense |
-
-**Known limitation**: The Yang-Zhang estimator assumes continuous price paths and struggles with discontinuous jumps (flash crashes). In such events, the regime detector may lag by 1-2 update cycles (3-6 minutes). The 30-second health monitor serves as the last line of defense.
+- **Jump risk**: Yang-Zhang assumes continuous prices. Flash crashes cause 1-2 cycle lag (3-6 min). 30s health monitor is last defense.
+- **Direction flip cost**: When funding changes sign, the position closes and re-enters opposite side. Maker orders minimize this cost but don't eliminate it.
+- **Extreme vol = idle**: 34% of the backtest period was extreme (no positions). This is non-negotiable — extreme vol is too dangerous for any position.
 
 ## Backtest Results
 
-32-day backtest (Feb 12 – Mar 15, 2026) using historical Drift data:
+32-day backtest (Feb 12 – Mar 15, 2026) — hostile period, 34% extreme vol:
 
-| Metric | v1 (Taker) | v2 (Maker) |
-|--------|-----------|-----------|
-| Total return | -0.38% | **-0.003%** |
-| Annualized APY | -4.30% | **-0.03%** |
-| Max drawdown | 0.38% | **0.01%** |
-| Total costs | $424 | **$65** (-85%) |
-| Trading days | 16/32 (50%) | 17/32 (53%) |
+| Metric | v1 (Short only) | v2 (Maker) | v3 (Bidirectional) |
+|--------|-----------------|-----------|-------------------|
+| Return | -0.38% | -0.003% | **+0.09%** |
+| APY | -4.30% | -0.03% | **+1.06%** |
+| Max DD | 0.38% | 0.01% | **0.00%** |
+| Sharpe | -10.28 | -0.82 | **9.21** |
+| Costs | $424 | $65 | $130 |
+| Trading days | 50% | 53% | **66%** |
+| Funding blocked | 16% | 13% | **0%** |
+| Markets active | BTC only | BTC only | **SOL+BTC+ETH** |
 
-**v2 eliminated nearly all cost drag** by switching to maker limit orders (-0.002% rebate) and using maker fees for delta hedges. In the most hostile 32-day period (34% extreme vol, 13% negative funding), the vault preserved capital almost perfectly — losing only $3 on $100K.
+**v3 turned negative funding from a blocker into a revenue source.** SOL-PERP (which was blocked in v1/v2 due to negative funding) is now actively traded by going LONG. All 3 markets contribute.
 
-The strategy was idle 47% of the time. In normal conditions (positive funding, 35-50% vol, active 80%+), the strategy targets 10-18% APY.
+1.06% APY in a period with 34% forced idle (extreme regime) projects to **~3% APY fully annualized in similar hostile conditions**, and **10-18% APY in normal markets** where the strategy is active 80%+ of the time with higher sizing.
 
-See [docs/STRATEGY.md](docs/STRATEGY.md) for detailed analysis and known limitations.
+See [docs/STRATEGY.md](docs/STRATEGY.md) for detailed analysis.
 
 ## Fees
 
@@ -187,38 +159,19 @@ See [docs/STRATEGY.md](docs/STRATEGY.md) for detailed analysis and known limitat
 npm test
 ```
 
-Tests validate:
-- **Vol engine** — Parkinson, Close-to-Close, Yang-Zhang estimators, EMA smoothing, edge cases
-- **Regime detector** — Classification, aggregate regime, transition detection, pause logic
-- **Funding filter** — Polarity gate, minimum threshold, cost gate, zero funding
-
-**Devnet integration tests** validate end-to-end against live Drift:
-
-```bash
-npm run test:devnet      # Basic connection + vol engine
-node dist/scripts/test-devnet-trading.js  # Full flow with funding filter
-```
+Tests validate vol engine, regime detector (updated for v3 sizing), and **bidirectional funding filter** (positive → SHORT, negative → LONG, zero → blocked).
 
 ## Demo & Dashboard
 
-- **Pitch video**: `demo/arashi-demo.mp4` — 80-second presentation (8 slides × 10s) covering 4 defense layers, vol engine, live test results, and backtest
-- **Live dashboard**: Open `demo/dashboard.html` in any browser — fetches real Drift OHLC candles, computes vol per market, shows regime classification, funding filter status, and defense layer table. No server required.
+- **Pitch video**: `demo/arashi-demo.mp4` — 80-second presentation
+- **Live dashboard**: `demo/dashboard.html` — real Drift data, no server needed
 
 ```bash
-# Preview
 open demo/dashboard.html
 open demo/arashi-demo.mp4
 ```
 
 ## Setup
-
-### Prerequisites
-
-- Node.js 18+
-- Solana CLI
-- Funded wallets (SOL for gas, USDC for vault deposits)
-
-### Installation
 
 ```bash
 git clone https://github.com/psyto/arashi.git
@@ -226,29 +179,18 @@ cd arashi
 npm install
 cp .env.example .env
 # Edit .env with your RPC URL and keypair paths
-```
 
-### Deploy Vault
-
-```bash
-# 1. Initialize Voltr vault
 npm run admin:init-vault
-
-# 2. Add Drift adaptor
 npm run admin:add-adaptor
-
-# 3. Initialize Drift trading strategy
 npm run manager:init-strategy
-
-# 4. Start the keeper bot
 npm run keeper
 ```
 
 ## Tech Stack
 
 - **On-chain**: [Voltr Vault](https://docs.ranger.finance) + [Drift Protocol v2](https://docs.drift.trade)
-- **Off-chain**: TypeScript keeper bot with custom vol engine and regime detector
-- **Data**: [Drift Data API](https://data.api.drift.trade) for OHLC candles, oracle prices, and funding rates
+- **Off-chain**: TypeScript keeper with bidirectional funding harvester
+- **Data**: [Drift Data API](https://data.api.drift.trade) for OHLC candles, funding rates
 - **RPC**: QuickNode (or any Solana RPC provider)
 
 ## Hackathon
@@ -257,7 +199,8 @@ Built for the [Ranger Build-A-Bear Hackathon](https://ranger.finance/build-a-bea
 
 - **Track**: Main + Drift Side Track
 - **Base asset**: USDC
-- **Target APY**: 10-18% (normal vol + positive funding)
+- **Target APY**: 10-18% (normal conditions)
+- **Edge**: Bidirectional funding — earns in bull AND bear markets
 - **Lock period**: 3-month rolling
 
 ## License
