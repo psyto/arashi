@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arashi Vault — Live Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    background: #0a0a0f; color: #e0e0e0;
+    padding: 24px; min-height: 100vh;
+  }
+  .header {
+    display: flex; align-items: center; gap: 16px;
+    margin-bottom: 24px; border-bottom: 1px solid #222; padding-bottom: 16px;
+  }
+  .header h1 { font-size: 28px; }
+  .header .status { font-size: 14px; color: #40c057; }
+  .header .status.error { color: #e03131; }
+  .header .last-update { font-size: 12px; color: #666; margin-left: auto; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .card {
+    background: #111118; border: 1px solid #222; border-radius: 8px; padding: 20px;
+  }
+  .card-label { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+  .card-value { font-size: 32px; margin-top: 8px; }
+  .card-sub { font-size: 12px; color: #888; margin-top: 4px; }
+  .positive { color: #40c057; }
+  .negative { color: #e03131; }
+  .accent { color: #5fb3d4; }
+  .warn { color: #f0b040; }
+  .section { margin-bottom: 24px; }
+  .section h2 { font-size: 18px; color: #888; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: #666; padding: 8px 12px; border-bottom: 2px solid #222; font-size: 12px; text-transform: uppercase; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1a1a1a; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    background: #1a2a1a; color: #40c057;
+  }
+  .badge.blocked { background: #2a1a1a; color: #e03131; }
+  .badge.warning { background: #2a2a1a; color: #f0b040; }
+  .badge.info { background: #1a1a2a; color: #5fb3d4; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .vol-bar {
+    height: 20px; border-radius: 4px; position: relative; overflow: hidden;
+    background: #1a1a1a; margin-top: 8px;
+  }
+  .vol-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+  .log-container {
+    background: #111118; border: 1px solid #222; border-radius: 8px; padding: 16px;
+    max-height: 200px; overflow-y: auto; font-size: 13px; line-height: 1.6;
+  }
+  .log-entry { border-bottom: 1px solid #1a1a1a; padding: 4px 0; }
+  .log-time { color: #444; }
+  .regime-indicator {
+    display: flex; height: 40px; border-radius: 8px; overflow: hidden; margin-bottom: 16px;
+  }
+  .regime-segment {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #fff; transition: flex-grow 0.5s ease;
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <span style="font-size: 32px;">⛈️</span>
+  <h1>Arashi Vault</h1>
+  <span class="status" id="status">● Connecting...</span>
+  <span class="last-update" id="lastUpdate">—</span>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="card-label">Total Equity</div>
+    <div class="card-value accent" id="equity">$—</div>
+    <div class="card-sub" id="equityChange">—</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Aggregate Regime</div>
+    <div class="card-value" id="regime">—</div>
+    <div class="card-sub" id="regimeSizing">Sizing: — | Delta: —</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Health Ratio</div>
+    <div class="card-value positive" id="health">—</div>
+    <div class="card-sub" id="healthStatus">—</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Strategy Status</div>
+    <div class="card-value" id="strategyStatus">—</div>
+    <div class="card-sub" id="strategyDetail">—</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Per-Market Analysis</h2>
+  <div class="three-col" id="marketCards"></div>
+</div>
+
+<div class="two-col">
+  <div class="section">
+    <h2>Regime Sizing Table</h2>
+    <table>
+      <thead><tr><th>Regime</th><th>Vol Range</th><th>Sizing</th><th>Delta ±</th><th>Status</th></tr></thead>
+      <tbody id="regimeTable">
+        <tr><td>Very Low</td><td>&lt;20%</td><td>5%</td><td>5.0%</td><td id="r-veryLow">—</td></tr>
+        <tr><td>Low</td><td>20-35%</td><td>20%</td><td>3.0%</td><td id="r-low">—</td></tr>
+        <tr><td>Normal</td><td>35-50%</td><td>35%</td><td>2.0%</td><td id="r-normal">—</td></tr>
+        <tr><td style="color:#f0b040">High</td><td>50-75%</td><td>15%</td><td>1.0%</td><td id="r-high">—</td></tr>
+        <tr><td style="color:#e03131">Extreme</td><td>&gt;75%</td><td>0%</td><td>0.5%</td><td id="r-extreme">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="section">
+    <h2>Defense Layers</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Check</th><th>Interval</th></tr></thead>
+      <tbody>
+        <tr><td>1. Funding Gate</td><td>Rate &gt; 0</td><td>10 min</td></tr>
+        <tr><td>2. Cost Gate</td><td>Funding &gt; fees</td><td>10 min</td></tr>
+        <tr><td>3. Regime Sizing</td><td>Vol → %</td><td>3 min</td></tr>
+        <tr><td>4. Dynamic Delta</td><td>±0.5-5%</td><td>30 min</td></tr>
+        <tr><td>5. Health Monitor</td><td>Ratio &gt; 1.15</td><td>30 sec</td></tr>
+        <tr><td>6. Drawdown</td><td>&lt; 5%</td><td>30 sec</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Keeper Log</h2>
+  <div class="log-container" id="logContainer"></div>
+</div>
+
+<script>
+const DRIFT_API = 'https://data.api.drift.trade';
+const MARKETS = ['SOL-PERP', 'BTC-PERP', 'ETH-PERP'];
+
+async function fetchCandles(market) {
+  const res = await fetch(`${DRIFT_API}/market/${market}/candles/60?limit=168`);
+  const body = await res.json();
+  return body.records || [];
+}
+
+async function fetchFunding() {
+  const res = await fetch(`${DRIFT_API}/stats/fundingRates`);
+  const body = await res.json();
+  return body.markets || [];
+}
+
+function computeVol(candles) {
+  let sum = 0, count = 0;
+  for (const c of candles) {
+    if (c.oracleHigh > 0 && c.oracleLow > 0 && c.oracleHigh >= c.oracleLow) {
+      const logHL = Math.log(c.oracleHigh / c.oracleLow);
+      sum += logHL * logHL;
+      count++;
+    }
+  }
+  if (count === 0) return 0;
+  return Math.sqrt(sum / (4 * Math.LN2 * count) * 365.25 * 24);
+}
+
+function classifyRegime(vol) {
+  if (vol < 0.20) return 'veryLow';
+  if (vol < 0.35) return 'low';
+  if (vol < 0.50) return 'normal';
+  if (vol < 0.75) return 'high';
+  return 'extreme';
+}
+
+const sizingMap = { veryLow: 5, low: 20, normal: 35, high: 15, extreme: 0 };
+const deltaMap = { veryLow: 5, low: 3, normal: 2, high: 1, extreme: 0.5 };
+const colorMap = { veryLow: '#40c057', low: '#40c057', normal: '#5fb3d4', high: '#f0b040', extreme: '#e03131' };
+
+function addLog(msg, type = 'info') {
+  const container = document.getElementById('logContainer');
+  const time = new Date().toLocaleTimeString();
+  const color = type === 'error' ? '#e03131' : type === 'warn' ? '#f0b040' : '#888';
+  container.innerHTML = `<div class="log-entry"><span class="log-time">${time}</span> <span style="color:${color}">${msg}</span></div>` + container.innerHTML;
+  if (container.children.length > 50) container.lastChild.remove();
+}
+
+async function update() {
+  try {
+    const fundingData = await fetchFunding();
+    const marketCards = document.getElementById('marketCards');
+    let htmlCards = '';
+    const regimes = [];
+    let blockedCount = 0;
+
+    for (const market of MARKETS) {
+      const candles = await fetchCandles(market);
+      const vol = computeVol(candles);
+      const regime = classifyRegime(vol);
+      regimes.push(regime);
+
+      const fundingEntry = fundingData.find(m => m.symbol === market);
+      const rate24h = fundingEntry ? parseFloat(fundingEntry.fundingRates['24h']) : 0;
+      const apy = rate24h * 24 * 365 * 100;
+      const fundingPositive = rate24h > 0;
+
+      let status = 'TRADING';
+      let statusClass = '';
+      if (regime === 'extreme') { status = 'PAUSED (extreme)'; statusClass = 'blocked'; blockedCount++; }
+      else if (!fundingPositive) { status = 'BLOCKED (funding)'; statusClass = 'blocked'; blockedCount++; }
+      else { statusClass = ''; }
+
+      const volPct = (vol * 100).toFixed(1);
+      const volBarColor = colorMap[regime];
+      const volBarWidth = Math.min(vol * 100 / 100 * 100, 100); // Scale to 100% vol = full bar
+
+      htmlCards += `
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="card-label">${market}</div>
+            <span class="badge ${statusClass}">${status}</span>
+          </div>
+          <div style="margin-top:12px;">
+            <div style="font-size:12px;color:#666;">Realized Vol</div>
+            <div style="font-size:24px;color:${volBarColor}">${volPct}% <span style="font-size:14px;color:#888;">(${regime})</span></div>
+            <div class="vol-bar"><div class="vol-fill" style="width:${volBarWidth}%;background:${volBarColor}"></div></div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:16px;">
+            <div>
+              <div style="font-size:12px;color:#666;">Funding</div>
+              <div class="${fundingPositive ? 'positive' : 'negative'}" style="font-size:16px;">${(rate24h * 100).toFixed(4)}%</div>
+            </div>
+            <div>
+              <div style="font-size:12px;color:#666;">APY</div>
+              <div class="${apy >= 0 ? 'positive' : 'negative'}" style="font-size:16px;">${apy.toFixed(1)}%</div>
+            </div>
+            <div>
+              <div style="font-size:12px;color:#666;">Delta ±</div>
+              <div style="font-size:16px;">${deltaMap[regime]}%</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    marketCards.innerHTML = htmlCards;
+
+    // Aggregate regime (use highest)
+    const regimeOrder = ['veryLow', 'low', 'normal', 'high', 'extreme'];
+    const maxIdx = Math.max(...regimes.map(r => regimeOrder.indexOf(r)));
+    const aggregateRegime = regimeOrder[maxIdx];
+    const sizing = sizingMap[aggregateRegime];
+    const delta = deltaMap[aggregateRegime];
+
+    document.getElementById('regime').textContent = aggregateRegime;
+    document.getElementById('regime').className = `card-value`;
+    document.getElementById('regime').style.color = colorMap[aggregateRegime];
+    document.getElementById('regimeSizing').textContent = `Sizing: ${sizing}% | Delta: ±${delta}%`;
+
+    // Highlight active regime row
+    for (const r of regimeOrder) {
+      document.getElementById(`r-${r}`).innerHTML = r === aggregateRegime
+        ? '<span class="badge info">ACTIVE</span>'
+        : '<span style="color:#333">—</span>';
+    }
+
+    // Strategy status
+    const tradingMarkets = MARKETS.length - blockedCount;
+    if (aggregateRegime === 'extreme') {
+      document.getElementById('strategyStatus').textContent = 'PAUSED';
+      document.getElementById('strategyStatus').className = 'card-value negative';
+      document.getElementById('strategyDetail').textContent = 'Extreme regime — all positions closed';
+    } else if (tradingMarkets === 0) {
+      document.getElementById('strategyStatus').textContent = 'IDLE';
+      document.getElementById('strategyStatus').className = 'card-value warn';
+      document.getElementById('strategyDetail').textContent = 'All markets blocked by funding filter';
+    } else {
+      document.getElementById('strategyStatus').textContent = 'ACTIVE';
+      document.getElementById('strategyStatus').className = 'card-value positive';
+      document.getElementById('strategyDetail').textContent = `${tradingMarkets}/${MARKETS.length} markets eligible`;
+    }
+
+    // Mock equity / health
+    document.getElementById('equity').textContent = '$100,000';
+    document.getElementById('equityChange').textContent = 'Simulated — connect to Drift for live data';
+    document.getElementById('health').textContent = '∞';
+    document.getElementById('healthStatus').textContent = 'No open positions (dashboard mode)';
+
+    document.getElementById('status').textContent = '● Live';
+    document.getElementById('status').className = 'status';
+    document.getElementById('lastUpdate').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+
+    addLog(`Scan: regime=${aggregateRegime}, sizing=${sizing}%, ${tradingMarkets}/${MARKETS.length} markets eligible`);
+  } catch (err) {
+    document.getElementById('status').textContent = '● Error';
+    document.getElementById('status').className = 'status error';
+    addLog(`Error: ${err.message}`, 'error');
+  }
+}
+
+update();
+addLog('Dashboard started — fetching live Drift data');
+setInterval(update, 60000);
+</script>
+</body>
+</html>

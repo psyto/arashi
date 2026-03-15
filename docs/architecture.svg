@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 650" font-family="SF Mono, Fira Code, monospace">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#666"/></marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#5fb3d4"/></marker>
+  </defs>
+  <rect width="900" height="650" fill="#0a0a0f" rx="12"/>
+
+  <!-- Title -->
+  <text x="450" y="40" fill="#e0e0e0" font-size="20" text-anchor="middle" font-weight="bold">⛈️ Arashi Vault — Architecture</text>
+
+  <!-- User -->
+  <rect x="350" y="60" width="200" height="40" rx="8" fill="none" stroke="#666" stroke-width="1.5"/>
+  <text x="450" y="85" fill="#ccc" font-size="13" text-anchor="middle">User (USDC)</text>
+
+  <line x1="450" y1="100" x2="450" y2="130" stroke="#666" marker-end="url(#arrow)"/>
+
+  <!-- Voltr Vault -->
+  <rect x="250" y="130" width="400" height="50" rx="8" fill="#111118" stroke="#333" stroke-width="1.5"/>
+  <text x="270" y="148" fill="#5fb3d4" font-size="10">ON-CHAIN</text>
+  <text x="450" y="168" fill="#ccc" font-size="13" text-anchor="middle">Voltr Vault — Deposits, LP Shares, Fees</text>
+
+  <line x1="450" y1="180" x2="450" y2="200" stroke="#666" marker-end="url(#arrow)"/>
+
+  <!-- Drift Adaptor -->
+  <rect x="250" y="200" width="400" height="50" rx="8" fill="#111118" stroke="#333" stroke-width="1.5"/>
+  <text x="270" y="218" fill="#5fb3d4" font-size="10">ON-CHAIN</text>
+  <text x="450" y="238" fill="#ccc" font-size="13" text-anchor="middle">Drift Adaptor — Bridges Vault ↔ Drift v2</text>
+
+  <line x1="450" y1="250" x2="450" y2="280" stroke="#5fb3d4" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <!-- Keeper Bot -->
+  <rect x="30" y="280" width="840" height="330" rx="12" fill="#0f0f18" stroke="#5fb3d4" stroke-width="2"/>
+  <text x="50" y="305" fill="#5fb3d4" font-size="14" font-weight="bold">Arashi Keeper Bot (Off-Chain) — 4 Defense Layers</text>
+
+  <!-- Layer 1: Funding Gate -->
+  <rect x="50" y="320" width="195" height="90" rx="6" fill="#1a1a18" stroke="#40c057" stroke-width="1.5"/>
+  <text x="60" y="340" fill="#40c057" font-size="11" font-weight="bold">Layer 1: Funding Gate</text>
+  <text x="60" y="356" fill="#999" font-size="10">• Rate > 0 (hard gate)</text>
+  <text x="60" y="370" fill="#999" font-size="10">• Funding > round-trip fees</text>
+  <text x="60" y="384" fill="#999" font-size="10">• Check every 10 min</text>
+  <text x="60" y="400" fill="#666" font-size="9">PRIMARY CONDITION</text>
+
+  <!-- Arrow right -->
+  <line x1="245" y1="365" x2="265" y2="365" stroke="#40c057" marker-end="url(#arrow)"/>
+  <text x="247" y="358" fill="#40c057" font-size="8">PASS?</text>
+
+  <!-- Layer 2: Regime Sizing -->
+  <rect x="265" y="320" width="195" height="90" rx="6" fill="#111118" stroke="#5fb3d4" stroke-width="1.5"/>
+  <text x="275" y="340" fill="#5fb3d4" font-size="11" font-weight="bold">Layer 2: Regime Sizing</text>
+  <text x="275" y="356" fill="#999" font-size="10">• Yang-Zhang + Parkinson vol</text>
+  <text x="275" y="370" fill="#999" font-size="10">• 5 regimes → 0-35% sizing</text>
+  <text x="275" y="384" fill="#999" font-size="10">• Pre-extreme at 60%</text>
+  <text x="275" y="400" fill="#666" font-size="9">POSITION SCALING</text>
+
+  <!-- Arrow right -->
+  <line x1="460" y1="365" x2="480" y2="365" stroke="#5fb3d4" marker-end="url(#arrow)"/>
+
+  <!-- Layer 3: Dynamic Delta -->
+  <rect x="480" y="320" width="185" height="90" rx="6" fill="#111118" stroke="#f0b040" stroke-width="1.5"/>
+  <text x="490" y="340" fill="#f0b040" font-size="11" font-weight="bold">Layer 3: Dynamic Delta</text>
+  <text x="490" y="356" fill="#999" font-size="10">• ±5% (calm) → ±0.5% (ext.)</text>
+  <text x="490" y="370" fill="#999" font-size="10">• SOL-PERP hedge instrument</text>
+  <text x="490" y="384" fill="#999" font-size="10">• Tightens with vol</text>
+  <text x="490" y="400" fill="#666" font-size="9">DIRECTIONAL CONTROL</text>
+
+  <!-- Arrow right -->
+  <line x1="665" y1="365" x2="685" y2="365" stroke="#f0b040" marker-end="url(#arrow)"/>
+
+  <!-- Layer 4: Health Monitor -->
+  <rect x="685" y="320" width="165" height="90" rx="6" fill="#1a1018" stroke="#e03131" stroke-width="1.5"/>
+  <text x="695" y="340" fill="#e03131" font-size="11" font-weight="bold">Layer 4: Health</text>
+  <text x="695" y="356" fill="#999" font-size="10">• Every 30 seconds</text>
+  <text x="695" y="370" fill="#999" font-size="10">• Reduce at 1.15</text>
+  <text x="695" y="384" fill="#999" font-size="10">• Close all at 1.08</text>
+  <text x="695" y="400" fill="#666" font-size="9">LAST DEFENSE</text>
+
+  <!-- Vol Engine -->
+  <rect x="50" y="430" width="260" height="80" rx="6" fill="#111118" stroke="#7cafc2" stroke-width="1"/>
+  <text x="60" y="450" fill="#7cafc2" font-size="11" font-weight="bold">Volatility Engine</text>
+  <text x="60" y="468" fill="#999" font-size="10">• Yang-Zhang estimator</text>
+  <text x="60" y="483" fill="#999" font-size="10">• Parkinson estimator (average)</text>
+  <text x="60" y="498" fill="#999" font-size="10">• EMA 7d / 30d smoothing</text>
+
+  <!-- Vol Trader -->
+  <rect x="330" y="430" width="240" height="80" rx="6" fill="#111118" stroke="#5fb3d4" stroke-width="1"/>
+  <text x="340" y="450" fill="#5fb3d4" font-size="11" font-weight="bold">Vol Trader</text>
+  <text x="340" y="468" fill="#999" font-size="10">• SHORT perps on SOL/BTC/ETH</text>
+  <text x="340" y="483" fill="#999" font-size="10">• Collect funding as vol premium</text>
+  <text x="340" y="498" fill="#999" font-size="10">• Max leverage: 1.5x</text>
+
+  <!-- Drift -->
+  <rect x="590" y="430" width="260" height="80" rx="6" fill="#111118" stroke="#333" stroke-width="1"/>
+  <text x="600" y="450" fill="#888" font-size="11" font-weight="bold">Drift Protocol v2</text>
+  <text x="600" y="468" fill="#999" font-size="10">• SOL-PERP, BTC-PERP, ETH-PERP</text>
+  <text x="600" y="483" fill="#999" font-size="10">• Funding collection (hourly)</text>
+  <text x="600" y="498" fill="#999" font-size="10">• Delta hedging via perps</text>
+
+  <!-- Data -->
+  <text x="50" y="540" fill="#444" font-size="10">Data: Drift API (OHLC candles, funding rates) | Vol: 10min | Regime: 3min | Rebalance: 30min | Health: 30s</text>
+
+  <!-- Markets -->
+  <rect x="50" y="555" width="800" height="40" rx="6" fill="#111118" stroke="#222"/>
+  <text x="70" y="580" fill="#888" font-size="11">Markets: SOL-PERP (primary hedge) | BTC-PERP | ETH-PERP — only high-liquidity pairs</text>
+
+  <!-- Legend -->
+  <rect x="50" y="610" width="12" height="12" rx="2" fill="#40c057"/>
+  <text x="68" y="621" fill="#888" font-size="10">Funding Gate</text>
+  <rect x="170" y="610" width="12" height="12" rx="2" fill="#5fb3d4"/>
+  <text x="188" y="621" fill="#888" font-size="10">Regime/Sizing</text>
+  <rect x="300" y="610" width="12" height="12" rx="2" fill="#f0b040"/>
+  <text x="318" y="621" fill="#888" font-size="10">Delta Control</text>
+  <rect x="420" y="610" width="12" height="12" rx="2" fill="#e03131"/>
+  <text x="438" y="621" fill="#888" font-size="10">Health Monitor</text>
+</svg>

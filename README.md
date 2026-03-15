@@ -57,6 +57,8 @@ Key advantages:
 
 ## Architecture
 
+![Arashi Architecture](docs/architecture.svg)
+
 ```
 ┌─────────────────────────────────────┐
 │  Voltr Vault (on-chain)             │
