@@ -43,8 +43,10 @@ async function fetchCandleHistory(market: string): Promise<CandleData[]> {
 async function main() {
   console.log("⛈️  Arashi Vault — Historical Backtest (Realistic)\n");
   console.log("Strategy: Delta-neutral vol harvesting with funding polarity filter");
-  console.log("Regime sizing: 5-35% of equity | Max leverage: 1.5x");
-  console.log("Costs: 0.035% taker + 0.05% slippage + 2 daily hedges\n");
+  const orderType = STRATEGY_CONFIG.useLimitOrders ? "LIMIT (maker)" : "MARKET (taker)";
+  const feeBps = STRATEGY_CONFIG.useLimitOrders ? STRATEGY_CONFIG.driftMakerFeeBps : STRATEGY_CONFIG.driftTakerFeeBps;
+  console.log(`Regime sizing: 10-40% of equity | Max leverage: ${STRATEGY_CONFIG.maxLeverage}x`);
+  console.log(`Orders: ${orderType} | Fee: ${feeBps} bps | Slippage: ${STRATEGY_CONFIG.estimatedSlippageBps} bps\n`);
 
   const markets = STRATEGY_CONFIG.primaryMarkets; // SOL, BTC, ETH
 
@@ -68,12 +70,15 @@ async function main() {
 
   // Configuration
   const INITIAL_EQUITY = 100_000;
-  const MAX_LEVERAGE = STRATEGY_CONFIG.maxLeverage; // 1.5
-  const TAKER_FEE = STRATEGY_CONFIG.driftTakerFeeBps / 10000;
-  const SLIPPAGE = STRATEGY_CONFIG.estimatedSlippageBps / 10000;
-  const ROUND_TRIP_COST = 2 * (TAKER_FEE + SLIPPAGE); // 0.17%
-  const HEDGES_PER_DAY = 2; // Average delta hedges per day
-  const HEDGE_COST_PER = TAKER_FEE + SLIPPAGE; // One-way cost per hedge
+  const MAX_LEVERAGE = STRATEGY_CONFIG.maxLeverage;
+
+  // v2: Use maker or taker fees based on config
+  const PER_TRADE_FEE = STRATEGY_CONFIG.useLimitOrders
+    ? Math.max(0, (STRATEGY_CONFIG.estimatedSlippageBps + STRATEGY_CONFIG.driftMakerFeeBps) / 10000)
+    : (STRATEGY_CONFIG.estimatedSlippageBps + STRATEGY_CONFIG.driftTakerFeeBps) / 10000;
+  const ROUND_TRIP_COST = 2 * PER_TRADE_FEE;
+  const HEDGES_PER_DAY = 2;
+  const HEDGE_COST_PER = PER_TRADE_FEE; // Same fee structure for hedges
 
   // Group funding by day
   const allDates = new Set<string>();
