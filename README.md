@@ -2,7 +2,7 @@
 
 **Bidirectional funding harvester on Solana.**
 
-Arashi rides the storm — in both directions. A USDC vault that harvests Drift perpetual funding rates by always positioning on the receiving side: SHORT when longs pay shorts, LONG when shorts pay longs. Earns yield regardless of whether the market is bullish or bearish.
+Arashi rides the storm — in both directions. A USDC vault that harvests Drift perpetual funding rates by always positioning on the receiving side: SHORT when longs pay shorts, LONG when shorts pay longs. During extreme volatility, idle capital earns lending yield. Capital is never idle — always earning.
 
 ## Strategy
 
@@ -48,11 +48,11 @@ Most vol/basis strategies only SHORT perps — they earn when funding is positiv
 
 **Arashi's insight**: Funding flows both ways. When shorts dominate (bear market), LONGS get paid. By always positioning on the receiving side, Arashi earns in ALL market conditions except extreme vol (>75%).
 
-| Market Condition | Funding | Arashi Direction | Result |
-|-----------------|---------|-----------------|--------|
-| Bull (longs dominant) | Positive | **SHORT** | Earns |
-| Bear (shorts dominant) | Negative | **LONG** | Earns |
-| Extreme vol | Any | **None** | Capital preserved |
+| Market Condition | Funding | Arashi Direction | Revenue Source |
+|-----------------|---------|-----------------|---------------|
+| Bull (longs dominant) | Positive | **SHORT** | Funding payments |
+| Bear (shorts dominant) | Negative | **LONG** | Funding payments |
+| Extreme vol | Any | **None** | **Lending yield** (Drift Earn) |
 
 ## Architecture
 
@@ -118,26 +118,25 @@ All orders use **maker limit orders** (`postOnly`) for fee rebates:
 
 - **Jump risk**: Yang-Zhang assumes continuous prices. Flash crashes cause 1-2 cycle lag (3-6 min). 30s health monitor is last defense.
 - **Direction flip cost**: When funding changes sign, the position closes and re-enters opposite side. Maker orders minimize this cost but don't eliminate it.
-- **Extreme vol = idle**: 34% of the backtest period was extreme (no positions). This is non-negotiable — extreme vol is too dangerous for any position.
+- **Extreme vol = lending only**: 34% of the backtest period was extreme (no perp positions). Idle USDC earns lending yield via Drift Earn during these periods — capital is never truly idle.
 
 ## Backtest Results
 
 32-day backtest (Feb 12 – Mar 15, 2026) — hostile period, 34% extreme vol:
 
-| Metric | v1 (Short only) | v2 (Maker) | v3 (Bidirectional) |
-|--------|-----------------|-----------|-------------------|
-| Return | -0.38% | -0.003% | **+0.09%** |
-| APY | -4.30% | -0.03% | **+1.06%** |
-| Max DD | 0.38% | 0.01% | **0.00%** |
-| Sharpe | -10.28 | -0.82 | **9.21** |
-| Costs | $424 | $65 | $130 |
-| Trading days | 50% | 53% | **66%** |
-| Funding blocked | 16% | 13% | **0%** |
-| Markets active | BTC only | BTC only | **SOL+BTC+ETH** |
+| Metric | v1 (Short only) | v2 (Maker) | v3 (Bidir.) | v3.1 (+Lending) |
+|--------|-----------------|-----------|------------|----------------|
+| Return | -0.38% | -0.003% | +0.09% | **+0.18%** |
+| APY | -4.30% | -0.03% | +1.06% | **+2.09%** |
+| Max DD | 0.38% | 0.01% | 0.00% | **0.01%** |
+| Sharpe | -10.28 | -0.82 | 9.21 | **15.77** |
+| Costs | $424 | $65 | $130 | $125 |
+| Revenue sources | 1 | 1 | 1 | **2** |
+| Idle earning | $0 | $0 | $0 | **$91 lending** |
 
-**v3 turned negative funding from a blocker into a revenue source.** SOL-PERP (which was blocked in v1/v2 due to negative funding) is now actively traded by going LONG. All 3 markets contribute.
+**v3.1 ensures capital is never idle.** During the 11 extreme-regime days where previous versions earned nothing, idle USDC now earns lending yield via Drift Earn ($91 over 11 days). Combined with bidirectional funding, Arashi has two revenue sources active in every market condition.
 
-1.06% APY in a period with 34% forced idle (extreme regime) projects to **~3% APY fully annualized in similar hostile conditions**, and **10-18% APY in normal markets** where the strategy is active 80%+ of the time with higher sizing.
+2.09% APY with 34% extreme vol projects to **10-18% APY in normal markets** where the strategy is active 80%+ of the time with higher sizing and both revenue sources contributing.
 
 See [docs/STRATEGY.md](docs/STRATEGY.md) for detailed analysis.
 
@@ -200,7 +199,7 @@ Built for the [Ranger Build-A-Bear Hackathon](https://ranger.finance/build-a-bea
 - **Track**: Main + Drift Side Track
 - **Base asset**: USDC
 - **Target APY**: 10-18% (normal conditions)
-- **Edge**: Bidirectional funding — earns in bull AND bear markets
+- **Edge**: Bidirectional funding + lending on idle — always earning, never idle
 - **Lock period**: 3-month rolling
 
 ## License
