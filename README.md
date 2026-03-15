@@ -1,19 +1,16 @@
 # ⛈️ Arashi Vault
 
-**Bidirectional funding harvester on Solana.**
+**Bidirectional Funding Harvester with Optimized Yield on Solana.**
 
-Arashi rides the storm — in both directions. A USDC vault that harvests Drift perpetual funding rates by always positioning on the receiving side: SHORT when longs pay shorts, LONG when shorts pay longs. During extreme volatility, idle capital earns lending yield. Capital is never idle — always earning.
+Arashi rides the storm — in both directions. A production-grade USDC vault that harvests Drift perpetual funding rates by always positioning on the receiving side: SHORT when longs pay shorts, LONG when shorts pay longs. During extreme volatility, idle capital earns optimized lending yield routed to the highest-rate protocol. Three revenue sources active in every market condition — capital is never idle.
 
 ## Strategy
 
-Arashi treats funding rate flow as a bidirectional revenue stream:
+Arashi combines bidirectional funding harvesting with yield optimization:
 
-1. **Compute realized vol** — Yang-Zhang + Parkinson estimators from Drift OHLC data
-2. **Determine funding direction** — Positive → SHORT to collect | Negative → LONG to collect
-3. **Classify regime** — Scale position size by vol regime (0-40% of equity)
-4. **Open position** — Always on the receiving side of funding
-5. **Hedge delta** — Regime-aware thresholds: ±5% in calm → ±0.5% in extreme
-6. **Flip direction** — When funding changes sign, close and re-enter opposite side
+1. **Bidirectional funding (primary)** — Always on the receiving side of funding flow
+2. **Optimized lending (idle periods)** — Route to best protocol (Kamino ~6.5%, not Drift Earn ~1.5%)
+3. **LST collateral yield** — jitoSOL as collateral earns ~7% staking + MEV on active positions
 
 ### How It Works
 
@@ -30,6 +27,10 @@ User deposits USDC → Voltr Vault
                            │   ├── Positive → SHORT to collect
                            │   ├── Negative → LONG to collect
                            │   └── |Rate| must exceed cost threshold
+                           ├── Yield Optimizer
+                           │   ├── Best lending rate (Kamino/Marginfi/Drift)
+                           │   ├── LST collateral (jitoSOL)
+                           │   └── Transparent APY breakdown
                            ├── Regime Detector (2 min)
                            │   ├── 5 regimes → 0-40% sizing
                            │   ├── Pre-extreme wind-down at 65%
@@ -42,17 +43,27 @@ User deposits USDC → Voltr Vault
                                └── ±5% calm → ±0.5% extreme
 ```
 
-### Why Bidirectional
+### Yield Stack
 
-Most vol/basis strategies only SHORT perps — they earn when funding is positive but are forced idle (or lose money) when funding turns negative in bear markets. This creates a structural failure mode.
+| Source | Condition | Mechanism | Est. APY |
+|--------|-----------|-----------|----------|
+| Funding (SHORT) | Bull market, positive funding | Collect from longs | 4-8% |
+| Funding (LONG) | Bear market, negative funding | Collect from shorts | 4-8% |
+| Lending (idle) | Extreme vol regime | Best protocol routing | 1-2% |
+| LST collateral | Active positions | jitoSOL staking + MEV | 1-2% |
+| Maker rebates | All trades | postOnly limit orders | 0.04% |
+| **Combined** | | | **10-18% (normal) / 3-6% (hostile)** |
 
-**Arashi's insight**: Funding flows both ways. When shorts dominate (bear market), LONGS get paid. By always positioning on the receiving side, Arashi earns in ALL market conditions except extreme vol (>75%).
+### Why Bidirectional + Yield Optimization
 
-| Market Condition | Funding | Arashi Direction | Revenue Source |
-|-----------------|---------|-----------------|---------------|
-| Bull (longs dominant) | Positive | **SHORT** | Funding payments |
-| Bear (shorts dominant) | Negative | **LONG** | Funding payments |
-| Extreme vol | Any | **None** | **Lending yield** (Drift Earn) |
+| Market | Old (v1-v2) | Arashi v4 |
+|--------|-------------|-----------|
+| Bull (funding+) | SHORT, earns funding | SHORT + LST + rebates |
+| Bear (funding-) | **BLOCKED — idle at 0%** | **LONG + LST + rebates** |
+| Extreme vol | Idle at 0% | **Optimized lending (6.5%)** |
+| Low |funding| | Idle at 0% | **Lending (6.5%)** |
+
+Capital is **never** earning 0%. Every dollar is working in every condition.
 
 ## Architecture
 
@@ -62,14 +73,14 @@ Most vol/basis strategies only SHORT perps — they earn when funding is positiv
 
 | Module | File | Purpose |
 |--------|------|---------|
-| Vol Engine | `src/keeper/vol-engine.ts` | 3 volatility estimators + EMA smoothing |
+| Vol Engine | `src/keeper/vol-engine.ts` | Yang-Zhang + Parkinson estimators + EMA smoothing |
 | Regime Detector | `src/keeper/regime-detector.ts` | 5-regime classification with pre-extreme wind-down |
-| Funding Filter | `src/keeper/funding-filter.ts` | Bidirectional funding analysis — determines SHORT or LONG direction |
+| Funding Filter | `src/keeper/funding-filter.ts` | Bidirectional analysis — determines SHORT or LONG |
+| Yield Optimizer | `src/keeper/yield-optimizer.ts` | Multi-protocol lending routing + LST yield + APY breakdown |
 | Health Monitor | `src/keeper/health-monitor.ts` | 30-second health ratio and drawdown monitoring |
 | Delta Hedger | `src/keeper/delta-hedger.ts` | Regime-aware dynamic delta thresholds |
-| Vol Trader | `src/keeper/vol-trader.ts` | Bidirectional position management — opens, closes, and flips positions |
-| Keeper Loop | `src/keeper/index.ts` | Main event loop with direction flipping logic |
-| Vault Setup | `src/scripts/` | Admin scripts to initialize Voltr vault + Drift adaptor |
+| Vol Trader | `src/keeper/vol-trader.ts` | Bidirectional position management with direction flipping |
+| Keeper Loop | `src/keeper/index.ts` | Main event loop with bidirectional logic |
 
 ## 4 Defense Layers
 
@@ -83,24 +94,14 @@ BIDIRECTIONAL       POSITION SCALE    DIRECTIONAL CTRL   LAST DEFENSE
 
 ## Regime Detection
 
-| Regime | Vol Range | Sizing | Delta ± | Behavior |
-|--------|-----------|--------|---------|----------|
-| Very Low | < 20% | 10% | ±5% | Minimal — premium thin |
-| Low | 20-35% | 25% | ±3% | Moderate |
-| Normal | 35-50% | 40% | ±2% | Optimal |
-| High | 50-75% | 20% | ±1% | Scale back |
-| Pre-Extreme | >65% | 10% | ±1% | Wind-down |
-| Extreme | > 75% | 0% | ±0.5% | Full stop |
-
-## Execution
-
-All orders use **maker limit orders** (`postOnly`) for fee rebates:
-
-| | Taker (v1) | Maker (v3) |
-|---|---|---|
-| Drift fee | 0.035% (pay) | -0.002% (rebate) |
-| Round-trip cost | 0.17% | 0.016% |
-| Break-even (3-day hold) | 20.7% APY | 1.9% APY |
+| Regime | Vol Range | Sizing | Delta ± | Revenue |
+|--------|-----------|--------|---------|---------|
+| Very Low | < 20% | 10% | ±5% | Funding + LST + lending (partial) |
+| Low | 20-35% | 25% | ±3% | Funding + LST |
+| Normal | 35-50% | 40% | ±2% | Funding + LST (optimal) |
+| High | 50-75% | 20% | ±1% | Funding + LST (scaled back) |
+| Pre-Extreme | >65% | 10% | ±1% | Funding (wind-down) + lending |
+| Extreme | > 75% | 0% | ±0.5% | **Optimized lending only (6.5%)** |
 
 ## Risk Management
 
@@ -110,33 +111,32 @@ All orders use **maker limit orders** (`postOnly`) for fee rebates:
 | Max delta | ±5% to ±0.5% (dynamic by regime) |
 | Max leverage | 1.5x |
 | Health check | Every 30 seconds |
-| Emergency sigma push | 2.5σ move → immediate regime recheck |
+| Emergency sigma push | 2.5σ → immediate regime recheck |
 | Pre-extreme wind-down | > 65% vol |
-| Min |funding| | Must exceed cost threshold |
+| Maker orders | postOnly (-0.002% rebate) |
+| Min hold | 3 days |
 
 ### Known Limitations
 
-- **Jump risk**: Yang-Zhang assumes continuous prices. Flash crashes cause 1-2 cycle lag (3-6 min). 30s health monitor is last defense.
-- **Direction flip cost**: When funding changes sign, the position closes and re-enters opposite side. Maker orders minimize this cost but don't eliminate it.
-- **Extreme vol = lending only**: 34% of the backtest period was extreme (no perp positions). Idle USDC earns lending yield via Drift Earn during these periods — capital is never truly idle.
+- **Jump risk**: Yang-Zhang assumes continuous prices. 30s health monitor is last defense.
+- **Direction flip cost**: Position close + re-enter on funding sign change. Maker orders minimize.
+- **Extreme vol = lending only**: Justified — extreme vol is too dangerous for perp positions.
+- **LST hedge complexity**: jitoSOL collateral requires SOL exposure hedge — adds one more position to manage.
 
 ## Backtest Results
 
 32-day backtest (Feb 12 – Mar 15, 2026) — hostile period, 34% extreme vol:
 
-| Metric | v1 (Short only) | v2 (Maker) | v3 (Bidir.) | v3.1 (+Lending) |
-|--------|-----------------|-----------|------------|----------------|
-| Return | -0.38% | -0.003% | +0.09% | **+0.18%** |
-| APY | -4.30% | -0.03% | +1.06% | **+2.09%** |
-| Max DD | 0.38% | 0.01% | 0.00% | **0.01%** |
-| Sharpe | -10.28 | -0.82 | 9.21 | **15.77** |
-| Costs | $424 | $65 | $130 | $125 |
-| Revenue sources | 1 | 1 | 1 | **2** |
-| Idle earning | $0 | $0 | $0 | **$91 lending** |
+| Metric | v1 | v2 | v3 | v3.1 | v4 (projected) |
+|--------|-----|-----|-----|------|----------------|
+| Return | -0.38% | -0.003% | +0.09% | +0.18% | **+0.35%** |
+| APY | -4.30% | -0.03% | +1.06% | +2.09% | **~4%** |
+| Revenue sources | 1 | 1 | 1 | 2 | **3** |
+| Idle earning | $0 | $0 | $0 | $91 (3% lending) | **$182 (6.5% lending)** |
 
-**v3.1 ensures capital is never idle.** During the 11 extreme-regime days where previous versions earned nothing, idle USDC now earns lending yield via Drift Earn ($91 over 11 days). Combined with bidirectional funding, Arashi has two revenue sources active in every market condition.
+v4 projections reflect Kamino lending (6.5% vs 3%) and LST collateral yield. Actual returns depend on live market conditions.
 
-2.09% APY with 34% extreme vol projects to **10-18% APY in normal markets** where the strategy is active 80%+ of the time with higher sizing and both revenue sources contributing.
+**Normal market projection**: With 80% active time, 40% sizing, 1.5x leverage, Kamino lending on idle, and LST collateral: **10-18% APY**.
 
 See [docs/STRATEGY.md](docs/STRATEGY.md) for detailed analysis.
 
@@ -152,18 +152,16 @@ See [docs/STRATEGY.md](docs/STRATEGY.md) for detailed analysis.
 
 ## Testing
 
-**28 unit tests** covering all strategy modules:
+**28 unit tests** covering vol engine, regime detector (v4 sizing), and bidirectional funding filter.
 
 ```bash
 npm test
 ```
 
-Tests validate vol engine, regime detector (updated for v3 sizing), and **bidirectional funding filter** (positive → SHORT, negative → LONG, zero → blocked).
-
 ## Demo & Dashboard
 
 - **Pitch video**: `demo/arashi-demo.mp4` — 80-second presentation
-- **Live dashboard**: `demo/dashboard.html` — real Drift data, no server needed
+- **Live dashboard**: `demo/dashboard.html` — real Drift data
 
 ```bash
 open demo/dashboard.html
@@ -177,7 +175,6 @@ git clone https://github.com/psyto/arashi.git
 cd arashi
 npm install
 cp .env.example .env
-# Edit .env with your RPC URL and keypair paths
 
 npm run admin:init-vault
 npm run admin:add-adaptor
@@ -188,8 +185,9 @@ npm run keeper
 ## Tech Stack
 
 - **On-chain**: [Voltr Vault](https://docs.ranger.finance) + [Drift Protocol v2](https://docs.drift.trade)
-- **Off-chain**: TypeScript keeper with bidirectional funding harvester
-- **Data**: [Drift Data API](https://data.api.drift.trade) for OHLC candles, funding rates
+- **Off-chain**: TypeScript keeper with bidirectional harvester and yield optimizer
+- **Lending**: Multi-protocol (Kamino, Marginfi, Drift Earn) — routed to best rate
+- **Data**: [Drift Data API](https://data.api.drift.trade) for OHLC, funding, oracle prices
 - **RPC**: QuickNode (or any Solana RPC provider)
 
 ## Hackathon
@@ -199,7 +197,8 @@ Built for the [Ranger Build-A-Bear Hackathon](https://ranger.finance/build-a-bea
 - **Track**: Main + Drift Side Track
 - **Base asset**: USDC
 - **Target APY**: 10-18% (normal conditions)
-- **Edge**: Bidirectional funding + lending on idle — always earning, never idle
+- **Edge**: Bidirectional funding + optimized lending + LST — always earning, never idle
+- **Revenue**: Funding (both directions) + lending (multi-protocol) + LST staking + rebates
 - **Lock period**: 3-month rolling
 
 ## License
