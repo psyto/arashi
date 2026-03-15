@@ -113,10 +113,14 @@ async function main() {
   let totalTradingCosts = 0;
   let totalHedgeCosts = 0;
 
+  // Lending yield on idle capital
+  const LENDING_DAILY_PCT = STRATEGY_CONFIG.estimatedLendingAPY / 365;
+
   // Stats
   let tradingDays = 0;
   let fundingBlockedDays = 0;
   let regimeBlockedDays = 0;
+  let totalLendingYield = 0;
   const regimeDays: Record<string, number> = {};
 
   interface DayLog {
@@ -157,8 +161,13 @@ async function main() {
 
     if (effectiveSizing === 0) {
       regimeBlockedDays++;
-      dailyReturnsPct.push(0);
-      dayLogs.push({ date, equity, returnPct: 0, regime, marketsTraded: [], blocked: "regime" });
+      // Idle capital earns lending yield
+      const lendingReturn = equity * (LENDING_DAILY_PCT / 100);
+      totalLendingYield += lendingReturn;
+      equity += lendingReturn;
+      const returnPct = (lendingReturn / (equity - lendingReturn)) * 100;
+      dailyReturnsPct.push(returnPct);
+      dayLogs.push({ date, equity, returnPct, regime, marketsTraded: ["LENDING"], blocked: "regime" });
       continue;
     }
 
@@ -217,8 +226,13 @@ async function main() {
 
     if (allBlocked) {
       fundingBlockedDays++;
-      dailyReturnsPct.push(0);
-      dayLogs.push({ date, equity, returnPct: 0, regime, marketsTraded: [], blocked: "funding" });
+      // Idle capital earns lending yield
+      const lendingReturn = equity * (LENDING_DAILY_PCT / 100);
+      totalLendingYield += lendingReturn;
+      equity += lendingReturn;
+      const returnPct = (lendingReturn / (equity - lendingReturn)) * 100;
+      dailyReturnsPct.push(returnPct);
+      dayLogs.push({ date, equity, returnPct, regime, marketsTraded: ["LENDING"], blocked: "funding" });
       continue;
     }
 
@@ -279,7 +293,8 @@ async function main() {
   console.log(`  Trading days:      ${tradingDays}/${totalDays} (${((tradingDays / totalDays) * 100).toFixed(0)}%)`);
   console.log(`  Funding blocked:   ${fundingBlockedDays} days (${((fundingBlockedDays / totalDays) * 100).toFixed(0)}%)`);
   console.log(`  Regime blocked:    ${regimeBlockedDays} days (${((regimeBlockedDays / totalDays) * 100).toFixed(0)}%)`);
-  console.log(`\nCosts:`);
+  console.log(`\nRevenue & Costs:`);
+  console.log(`  Lending yield:     $${totalLendingYield.toFixed(2)} (idle days earning ${STRATEGY_CONFIG.estimatedLendingAPY}% APY)`);
   console.log(`  Trading costs:     $${totalTradingCosts.toFixed(2)}`);
   console.log(`  Hedge costs:       $${totalHedgeCosts.toFixed(2)}`);
   console.log(`  Total costs:       $${(totalTradingCosts + totalHedgeCosts).toFixed(2)} (${(((totalTradingCosts + totalHedgeCosts) / INITIAL_EQUITY) * 100).toFixed(2)}% of initial)`);
