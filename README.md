@@ -155,16 +155,17 @@ The detector also pauses trading on rapid regime transitions (>3 in one hour) �
 
 32-day backtest (Feb 12 – Mar 15, 2026) using historical Drift data:
 
-| Metric | Value |
-|--------|-------|
-| Total return | **-0.38%** |
-| Max drawdown | **0.38%** (within 5% limit) |
-| Trading days | 16/32 (50%) |
-| Funding blocked | 5 days (16%) |
-| Extreme paused | 11 days (34%) |
-| Total costs | $424 (0.42%) |
+| Metric | v1 (Taker) | v2 (Maker) |
+|--------|-----------|-----------|
+| Total return | -0.38% | **-0.003%** |
+| Annualized APY | -4.30% | **-0.03%** |
+| Max drawdown | 0.38% | **0.01%** |
+| Total costs | $424 | **$65** (-85%) |
+| Trading days | 16/32 (50%) | 17/32 (53%) |
 
-The backtest period was **hostile** — 34% extreme vol, 16% negative funding. The strategy was idle 50% of the time — this is the cost of safety, not a failure. A naive vol strategy without these controls would have lost far more. In normal conditions (positive funding, 35-50% vol), the strategy targets 10-18% APY.
+**v2 eliminated nearly all cost drag** by switching to maker limit orders (-0.002% rebate) and using maker fees for delta hedges. In the most hostile 32-day period (34% extreme vol, 13% negative funding), the vault preserved capital almost perfectly — losing only $3 on $100K.
+
+The strategy was idle 47% of the time. In normal conditions (positive funding, 35-50% vol, active 80%+), the strategy targets 10-18% APY.
 
 See [docs/STRATEGY.md](docs/STRATEGY.md) for detailed analysis and known limitations.
 

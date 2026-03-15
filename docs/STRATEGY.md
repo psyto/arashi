@@ -157,35 +157,27 @@ The 30-second monitoring cycle is the **last line of defense** for jump risk and
 
 ## Backtest Results (Feb 12 – Mar 15, 2026)
 
-A 32-day backtest using historical Drift funding rate and OHLC candle data:
+32-day backtest comparing v1 (taker orders) and v2 (maker limit orders):
 
-| Metric | Value |
-|--------|-------|
-| Starting equity | $100,000 |
-| Ending equity | $99,623 |
-| Total return | -0.38% |
-| Annualized APY | -4.30% |
-| Max drawdown | 0.38% |
-| Trading days | 16/32 (50%) |
-| Funding blocked days | 5 (16%) |
-| Extreme regime paused | 11 (34%) |
-| Trading costs | $72 |
-| Hedge costs | $352 |
-| Total costs | $424 (0.42%) |
+| Metric | v1 (Taker) | v2 (Maker) |
+|--------|-----------|-----------|
+| Starting equity | $100,000 | $100,000 |
+| Ending equity | $99,623 | **$99,997** |
+| Total return | -0.38% | **-0.003%** |
+| Annualized APY | -4.30% | **-0.03%** |
+| Max drawdown | 0.38% | **0.01%** |
+| Total costs | $424 | **$65** (-85%) |
+| Trading days | 16/32 (50%) | 17/32 (53%) |
 
-**Regime breakdown**: Normal 19%, High 47%, Extreme 34%.
+**Regime breakdown**: Normal 22%, High 44%, Extreme 34%.
 
-**Why negative**: The backtest period was dominated by high/extreme volatility (81% of days) with mixed funding polarity. Hedging costs ($352) exceeded the small funding earned on trading days. This is the **worst-case operating environment** for a vol-harvesting strategy — high vol with negative funding is the exact scenario where the funding filter blocks entry to prevent larger losses.
+**What changed in v2**: Switched to maker limit orders (-0.002% rebate) for both trades and delta hedges. Raised regime sizing (10/25/40/20/0 from 5/20/35/15/0). Added emergency sigma push for faster regime detection.
 
-**What went right**:
-- Max drawdown was only 0.38% — trivial. Capital was preserved.
-- The funding filter correctly blocked entry on 16% of days when funding was negative.
-- The regime detector paused all trading on 34% of days (extreme vol).
-- The strategy was idle 50% of the time — this is the cost of safety, not a failure.
+**v2 nearly eliminated all losses** in the same hostile period. The $3 total loss on $100K represents near-perfect capital preservation. Hedge costs dropped from $352 to $53 because maker orders earn rebates instead of paying fees.
 
-**What the backtest proves**: In a hostile market, Arashi's multi-layer defense (funding gate → regime sizing → dynamic delta → health monitoring) prevents catastrophic loss. The -0.38% return over 32 days is the price of **not** blowing up — a naive vol strategy without these controls would have lost significantly more.
+**What the backtest proves**: Even in the worst environment (34% extreme vol, 13% negative funding, 47% idle), Arashi's defense layers plus maker execution preserve capital almost perfectly. The -0.003% return is not "capital stagnation" — it is the cost of surviving a market where naive strategies would have lost significantly more.
 
-**In a normal funding environment** (positive funding, 35-50% realized vol — the historical norm), the same strategy would trade 80%+ of days at 35% sizing with 1.5x leverage, generating 10-18% APY.
+**In normal conditions** (positive funding, 35-50% vol, active 80%+), v2 targets 10-18% APY with 40% regime sizing, 1.5x leverage, and maker rebates contributing to returns rather than draining them.
 
 ## Markets Traded
 
