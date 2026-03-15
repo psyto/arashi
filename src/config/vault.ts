@@ -22,13 +22,18 @@ export const VAULT_CONFIG = {
 
 // Volatility strategy parameters
 export const STRATEGY_CONFIG = {
-  // === LENDING YIELD ON IDLE CAPITAL (v3.1) ===
-  // When regime is extreme or no positions are open, idle USDC earns
-  // lending yield via Drift Earn instead of sitting at 0%.
-  // This adds a second revenue source and prevents capital stagnation.
+  // === LENDING YIELD ON IDLE CAPITAL (v4 — production) ===
+  // Route idle capital to highest-yield lending protocol (not fixed Drift Earn).
+  // Kamino (~6.5%), Marginfi (~5%), Drift Earn (~1.5%)
   enableLendingOnIdle: true,
-  lendingMarketIndex: 0, // USDC spot market on Drift
-  estimatedLendingAPY: 3, // Conservative estimate for backtest
+  enableLendingOptimization: true, // Query multiple protocols for best rate
+  lendingMarketIndex: 0, // USDC spot market on Drift (fallback)
+  estimatedLendingAPY: 6, // Kamino as primary lending target
+
+  // === LST COLLATERAL YIELD (v4 — production) ===
+  // Use jitoSOL as collateral instead of plain SOL/USDC where possible.
+  // Earns ~7-8% staking + MEV yield on collateral.
+  enableLstYield: true,
 
   primaryMarkets: ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
 
