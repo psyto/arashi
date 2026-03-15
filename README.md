@@ -179,6 +179,17 @@ The detector also pauses trading on rapid regime transitions (>3 in one hour) �
 | Withdrawal fee | 0.15% |
 | Withdrawal period | 24 hours |
 
+## Demo & Dashboard
+
+- **Pitch video**: `demo/arashi-demo.mp4` — 66-second presentation covering 4 defense layers, vol engine, live test results, and backtest
+- **Live dashboard**: Open `demo/dashboard.html` in any browser — fetches real Drift OHLC candles, computes vol per market, shows regime classification, funding filter status, and defense layer table. No server required.
+- **Voiceover script**: See `demo/` directory
+
+```bash
+# Preview the dashboard
+open demo/dashboard.html
+```
+
 ## Setup
 
 ### Prerequisites
@@ -219,7 +230,10 @@ npm run keeper
 # Build TypeScript
 npm run build
 
-# Run devnet tests
+# Run unit tests (28 tests)
+npm test
+
+# Run devnet integration test
 npm run test:devnet
 
 # Watch mode

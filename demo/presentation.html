@@ -6,82 +6,38 @@
 <title>Arashi Vault — Pitch</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    width: 1920px; height: 1080px; overflow: hidden;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    background: #0a0a0f; color: #e0e0e0;
-  }
-  .slide {
-    position: absolute; top: 0; left: 0;
-    width: 1920px; height: 1080px;
-    display: flex; flex-direction: column;
-    justify-content: center; align-items: center;
-    opacity: 0; transition: opacity 0.8s ease;
-    padding: 80px;
-  }
+  body { width: 1920px; height: 1080px; overflow: hidden; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; background: #0a0a0f; color: #e0e0e0; }
+  .slide { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.8s ease; padding: 80px; }
   .slide.active { opacity: 1; }
   h1 { font-size: 72px; margin-bottom: 20px; }
   h2 { font-size: 48px; margin-bottom: 30px; color: #7cafc2; }
   h3 { font-size: 36px; margin-bottom: 20px; color: #6b7b9c; }
   p { font-size: 28px; line-height: 1.6; max-width: 1400px; text-align: center; }
-  .accent { color: #5fb3d4; }
-  .green { color: #40c057; }
-  .red { color: #e03131; }
-  .dim { color: #666; }
-  .emoji { font-size: 120px; margin-bottom: 30px; }
+  .accent { color: #5fb3d4; } .green { color: #40c057; } .red { color: #e03131; } .dim { color: #666; } .warn { color: #f0b040; }
   .title-slide h1 { font-size: 96px; }
   .title-slide .subtitle { font-size: 32px; color: #7cafc2; margin-top: 10px; }
   .title-slide .tagline { font-size: 40px; color: #5fb3d4; margin-top: 30px; }
-
-  .arch-box {
-    border: 2px solid #333; border-radius: 12px; padding: 24px 40px;
-    margin: 10px 0; width: 900px; text-align: left; font-size: 24px;
-    background: #111118;
-  }
+  .arch-box { border: 2px solid #333; border-radius: 12px; padding: 24px 40px; margin: 10px 0; text-align: left; font-size: 24px; background: #111118; }
   .arch-box.highlight { border-color: #5fb3d4; background: #0f1520; }
   .arch-label { color: #5fb3d4; font-size: 20px; margin-bottom: 8px; }
-
-  .terminal {
-    background: #111118; border: 1px solid #333; border-radius: 12px;
-    padding: 30px 40px; width: 1400px; text-align: left;
-    font-size: 22px; line-height: 1.7;
-  }
-  .terminal .prompt { color: #40c057; }
-  .terminal .output { color: #ccc; }
-  .terminal .highlight { color: #5fb3d4; }
+  .terminal { background: #111118; border: 1px solid #333; border-radius: 12px; padding: 30px 40px; width: 1400px; text-align: left; font-size: 22px; line-height: 1.7; }
   .terminal .header { color: #7cafc2; font-weight: bold; }
+  .terminal .highlight { color: #5fb3d4; }
   .terminal .blocked { color: #e03131; }
-
-  .stats-grid {
-    display: grid; grid-template-columns: repeat(3, 1fr);
-    gap: 30px; width: 1400px;
-  }
-  .stat-card {
-    background: #111118; border: 1px solid #333; border-radius: 12px;
-    padding: 30px; text-align: center;
-  }
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; width: 1400px; }
+  .stat-card { background: #111118; border: 1px solid #333; border-radius: 12px; padding: 30px; text-align: center; }
   .stat-value { font-size: 48px; color: #5fb3d4; margin: 10px 0; }
   .stat-label { font-size: 20px; color: #888; }
-
   table { width: 1200px; border-collapse: collapse; font-size: 24px; }
   th { color: #5fb3d4; padding: 12px 20px; text-align: left; border-bottom: 2px solid #333; }
   td { padding: 12px 20px; border-bottom: 1px solid #222; }
-
-  .regime-bar {
-    display: flex; width: 1200px; height: 60px; border-radius: 8px; overflow: hidden; margin: 20px 0;
-  }
-  .regime-segment { display: flex; align-items: center; justify-content: center; font-size: 18px; }
-
-  .progress {
-    position: fixed; bottom: 0; left: 0; height: 4px;
-    background: #5fb3d4; transition: width 0.5s ease; z-index: 100;
-  }
-  .slide-number {
-    position: fixed; bottom: 20px; right: 40px;
-    font-size: 18px; color: #444; z-index: 100;
-  }
+  .progress { position: fixed; bottom: 0; left: 0; height: 4px; background: #5fb3d4; transition: width 0.5s ease; z-index: 100; }
+  .slide-number { position: fixed; bottom: 20px; right: 40px; font-size: 18px; color: #444; z-index: 100; }
   .fade-item { opacity: 0; transform: translateY(20px); transition: all 0.5s ease; }
   .fade-item.visible { opacity: 1; transform: translateY(0); }
+  .layer-flow { display: flex; gap: 12px; align-items: center; width: 1400px; margin-top: 30px; }
+  .layer-box { flex: 1; border-radius: 8px; padding: 16px; text-align: center; font-size: 16px; }
+  .layer-arrow { font-size: 24px; color: #444; }
 </style>
 </head>
 <body>
@@ -100,34 +56,53 @@
   <h2>The Fatal Flaw in Vol Strategies</h2>
   <div style="text-align: left; width: 1200px; margin-top: 40px;">
     <div class="fade-item" style="font-size: 28px; margin: 20px 0; padding: 20px; border-left: 4px solid #e03131;">
-      <span class="red">"Short Perp = Vol Selling"</span> — This assumption breaks in bear panics where vol is high but funding is negative. Shorts PAY instead of earn.
+      <span class="red">"Short Perp = Vol Selling"</span> — Breaks in bear panics where vol is high but funding is negative. Shorts PAY instead of earn.
     </div>
     <div class="fade-item" style="font-size: 28px; margin: 20px 0; padding: 20px; border-left: 4px solid #e03131;">
       <span class="red">Fixed ±5% delta threshold</span> — Allowing 5% directional exposure during high vol is a gamble, not a hedge.
     </div>
     <div class="fade-item" style="font-size: 28px; margin: 20px 0; padding: 20px; border-left: 4px solid #e03131;">
-      <span class="red">"Extreme = 0%" is an evasion</span> — By the time vol hits 75%, prices have already gapped. The exit comes too late.
+      <span class="red">"Extreme = close all" comes too late</span> — By the time vol hits 75%, prices have already gapped. Need pre-emptive wind-down.
     </div>
   </div>
 </div>
 
-<!-- Slide 3: Solution -->
+<!-- Slide 3: 4 Defense Layers -->
 <div class="slide" id="slide-3">
-  <h2>Arashi's Multi-Layer Defense</h2>
-  <div style="text-align: left; width: 1200px; margin-top: 40px;">
-    <div class="fade-item" style="font-size: 28px; margin: 20px 0; padding: 20px; border-left: 4px solid #5fb3d4;">
-      <span class="accent">Layer 1: Funding Polarity Gate</span> — Hard block on entry when funding &lt; 0. The PRIMARY condition, not volatility.
+  <h2>4 Defense Layers</h2>
+  <div class="layer-flow fade-item">
+    <div class="layer-box" style="border: 2px solid #40c057; background: #1a2a1a;">
+      <div style="color: #40c057; font-weight: bold; font-size: 18px;">Layer 1</div>
+      <div style="font-size: 14px; margin-top: 8px;">Funding Gate</div>
+      <div style="font-size: 12px; color: #888; margin-top: 4px;">Rate &gt; 0?<br>Funding &gt; fees?</div>
+      <div style="font-size: 11px; color: #40c057; margin-top: 4px;">PRIMARY GATE</div>
     </div>
-    <div class="fade-item" style="font-size: 28px; margin: 20px 0; padding: 20px; border-left: 4px solid #5fb3d4;">
-      <span class="accent">Layer 2: Regime-Adaptive Sizing</span> — 5% in low vol → 35% in normal → 0% in extreme. Pre-extreme wind-down at 60%.
+    <div class="layer-arrow">→</div>
+    <div class="layer-box" style="border: 2px solid #5fb3d4; background: #0f1520;">
+      <div style="color: #5fb3d4; font-weight: bold; font-size: 18px;">Layer 2</div>
+      <div style="font-size: 14px; margin-top: 8px;">Regime Sizing</div>
+      <div style="font-size: 12px; color: #888; margin-top: 4px;">YZ + Parkinson vol<br>5 regimes → 0-35%</div>
+      <div style="font-size: 11px; color: #5fb3d4; margin-top: 4px;">POSITION SCALING</div>
     </div>
-    <div class="fade-item" style="font-size: 28px; margin: 20px 0; padding: 20px; border-left: 4px solid #5fb3d4;">
-      <span class="accent">Layer 3: Dynamic Delta Thresholds</span> — ±5% in calm → ±0.5% in extreme. Tightens when it matters most.
+    <div class="layer-arrow">→</div>
+    <div class="layer-box" style="border: 2px solid #f0b040; background: #1a1810;">
+      <div style="color: #f0b040; font-weight: bold; font-size: 18px;">Layer 3</div>
+      <div style="font-size: 14px; margin-top: 8px;">Dynamic Delta</div>
+      <div style="font-size: 12px; color: #888; margin-top: 4px;">±5% calm → ±0.5% extreme<br>Tightens with vol</div>
+      <div style="font-size: 11px; color: #f0b040; margin-top: 4px;">DIRECTIONAL CTRL</div>
     </div>
-    <div class="fade-item" style="font-size: 28px; margin: 20px 0; padding: 20px; border-left: 4px solid #5fb3d4;">
-      <span class="accent">Layer 4: 30-Second Health Monitor</span> — Last line of defense for jump risk and flash crashes.
+    <div class="layer-arrow">→</div>
+    <div class="layer-box" style="border: 2px solid #e03131; background: #1a1018;">
+      <div style="color: #e03131; font-weight: bold; font-size: 18px;">Layer 4</div>
+      <div style="font-size: 14px; margin-top: 8px;">Health Monitor</div>
+      <div style="font-size: 12px; color: #888; margin-top: 4px;">Every 30 seconds<br>Close at 1.08</div>
+      <div style="font-size: 11px; color: #e03131; margin-top: 4px;">LAST DEFENSE</div>
     </div>
   </div>
+  <p style="margin-top: 40px; color: #7cafc2; font-size: 24px;">
+    Funding polarity is the <span class="accent">primary</span> condition — not volatility.<br>
+    Pre-extreme wind-down begins at 60% vol, before the 75% shutdown.
+  </p>
 </div>
 
 <!-- Slide 4: Vol Engine -->
@@ -135,33 +110,25 @@
   <h2>Volatility Engine</h2>
   <div style="display: flex; gap: 40px; margin-top: 30px;">
     <div class="fade-item" style="flex: 1;">
-      <div class="arch-box">
-        <div class="arch-label">YANG-ZHANG ESTIMATOR</div>
-        <div style="font-size: 20px; color: #ccc;">
-          σ²_YZ = σ²_overnight + k·σ²_OC + (1-k)·σ²_RS<br><br>
-          Most efficient estimator. Handles drift + overnight gaps.
-          <br><span class="dim">Weakness: struggles with discontinuous jumps</span>
-        </div>
-      </div>
-      <div class="arch-box" style="margin-top: 20px;">
-        <div class="arch-label">PARKINSON ESTIMATOR</div>
-        <div style="font-size: 20px; color: #ccc;">
-          σ² = 1/(4n·ln2) · Σ(ln(H/L))²<br><br>
-          5× more efficient than close-to-close per observation.
-          <br><span class="dim">Weakness: assumes no drift</span>
+      <div class="arch-box" style="width: auto;">
+        <div class="arch-label">YANG-ZHANG + PARKINSON</div>
+        <div style="font-size: 18px; color: #ccc; line-height: 1.6;">
+          Two estimators averaged for robustness.<br>
+          Yang-Zhang handles drift + overnight gaps.<br>
+          Parkinson uses high-low range (5× more efficient).<br>
+          <span class="dim">Known limitation: struggles with jumps (flash crashes).</span>
         </div>
       </div>
     </div>
     <div class="fade-item" style="flex: 1;">
-      <div class="arch-box highlight">
-        <div class="arch-label">REGIME CLASSIFICATION</div>
-        <div style="font-size: 20px; color: #ccc; line-height: 2;">
+      <div class="arch-box highlight" style="width: auto;">
+        <div class="arch-label">REGIME → SIZING → DELTA</div>
+        <div style="font-size: 16px; color: #ccc; line-height: 2;">
           Very Low (&lt;20%) → 5% sizing, ±5% delta<br>
           Low (20-35%) → 20% sizing, ±3% delta<br>
-          Normal (35-50%) → <span class="accent">35% sizing, ±2% delta</span><br>
-          High (50-75%) → 15% sizing, ±1% delta<br>
-          Pre-Extreme (&gt;60%) → 7.5% sizing<br>
-          Extreme (&gt;75%) → <span class="red">0% — full stop</span>
+          <span class="accent">Normal (35-50%) → 35% sizing, ±2% delta</span><br>
+          <span class="warn">High (50-75%) → 15% sizing, ±1% delta</span><br>
+          <span class="red">Extreme (&gt;75%) → 0% sizing, ±0.5% delta</span>
         </div>
       </div>
     </div>
@@ -170,62 +137,37 @@
 
 <!-- Slide 5: Live Demo -->
 <div class="slide" id="slide-5">
-  <h2>Live Devnet Test</h2>
+  <h2>Live Devnet Test — Risk Controls in Action</h2>
   <div class="terminal fade-item">
     <div class="header">⛈️ Arashi Devnet Trading Test</div><br>
     <span class="header">=== Volatility Engine ===</span><br>
-    &nbsp;&nbsp;SOL-PERP: realized=<span class="highlight">92.4%</span> | regime=<span class="red">extreme</span> | delta=±0.5%<br>
-    &nbsp;&nbsp;BTC-PERP: realized=<span class="highlight">68.9%</span> | regime=<span class="red">high</span> | delta=±1%<br>
-    &nbsp;&nbsp;ETH-PERP: realized=<span class="highlight">84.7%</span> | regime=<span class="red">extreme</span> | delta=±0.5%<br><br>
+    &nbsp;&nbsp;SOL-PERP: realized=<span class="highlight">92.4%</span> | regime=<span class="red">extreme</span> | delta threshold=±0.5%<br>
+    &nbsp;&nbsp;BTC-PERP: realized=<span class="highlight">68.9%</span> | regime=<span class="warn">high</span> | delta threshold=±1%<br>
+    &nbsp;&nbsp;ETH-PERP: realized=<span class="highlight">84.7%</span> | regime=<span class="red">extreme</span> | delta threshold=±0.5%<br><br>
     <span class="header">=== Funding Polarity Filter ===</span><br>
-    &nbsp;&nbsp;<span class="blocked">✗ SOL-PERP: -498% APY — Funding negative, would pay not earn</span><br>
-    &nbsp;&nbsp;<span class="green">✓ BTC-PERP: +531% APY — Funding positive and cost-viable</span><br>
-    &nbsp;&nbsp;<span class="blocked">✗ ETH-PERP: -489% APY — Funding negative, would pay not earn</span><br><br>
-    <span class="header">=== Trade Test ===</span><br>
-    &nbsp;&nbsp;Funding gate <span class="blocked">BLOCKED</span> trade on SOL-PERP<br>
-    &nbsp;&nbsp;<span class="green">Strategy working as intended — would not enter negative funding</span>
+    &nbsp;&nbsp;<span class="blocked">✗ SOL-PERP: -498% APY — BLOCKED (would pay, not earn)</span><br>
+    &nbsp;&nbsp;<span class="green">✓ BTC-PERP: +531% APY — PASS (positive + cost-viable)</span><br>
+    &nbsp;&nbsp;<span class="blocked">✗ ETH-PERP: -489% APY — BLOCKED (would pay, not earn)</span><br><br>
+    <span class="header">=== Trade Decision ===</span><br>
+    &nbsp;&nbsp;Aggregate regime: <span class="red">extreme</span> → <span class="blocked">ALL POSITIONS BLOCKED</span><br>
+    &nbsp;&nbsp;<span class="green">Strategy working as intended — capital preserved</span>
   </div>
 </div>
 
-<!-- Slide 6: Regime Breakdown -->
+<!-- Slide 6: Backtest -->
 <div class="slide" id="slide-6">
-  <h2>Risk Management in Action</h2>
-  <h3>Backtest: Feb 12 – Mar 15, 2026 (32 days)</h3>
-  <div class="stats-grid fade-item" style="margin-top: 30px;">
-    <div class="stat-card">
-      <div class="stat-label">MAX DRAWDOWN</div>
-      <div class="stat-value" style="color: #40c057;">0.38%</div>
-      <div class="stat-label">Capital preserved</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">IDLE TIME</div>
-      <div class="stat-value">50%</div>
-      <div class="stat-label">Cost of safety</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">FUNDING BLOCKED</div>
-      <div class="stat-value">16%</div>
-      <div class="stat-label">Negative funding days</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">EXTREME PAUSED</div>
-      <div class="stat-value">34%</div>
-      <div class="stat-label">Vol too high — sat out</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">DELTA THRESHOLD</div>
-      <div class="stat-value">±0.5%</div>
-      <div class="stat-label">Tightest during extreme</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">HEALTH CHECK</div>
-      <div class="stat-value">30s</div>
-      <div class="stat-label">Last line of defense</div>
-    </div>
+  <h2>Backtest: Honest Results</h2>
+  <h3>32 days (Feb 12 – Mar 15, 2026) — High vol + negative funding</h3>
+  <div class="stats-grid fade-item" style="margin-top: 20px;">
+    <div class="stat-card"><div class="stat-label">MAX DRAWDOWN</div><div class="stat-value" style="color: #40c057;">0.38%</div><div class="stat-label">Capital preserved</div></div>
+    <div class="stat-card"><div class="stat-label">IDLE TIME</div><div class="stat-value">50%</div><div class="stat-label">Cost of safety</div></div>
+    <div class="stat-card"><div class="stat-label">RETURN</div><div class="stat-value" style="color: #e03131;">-0.38%</div><div class="stat-label">Hedging costs &gt; funding</div></div>
+    <div class="stat-card"><div class="stat-label">FUNDING BLOCKED</div><div class="stat-value">16%</div><div class="stat-label">Negative funding days</div></div>
+    <div class="stat-card"><div class="stat-label">EXTREME PAUSED</div><div class="stat-value">34%</div><div class="stat-label">Vol too high</div></div>
+    <div class="stat-card"><div class="stat-label">UNIT TESTS</div><div class="stat-value">28</div><div class="stat-label">All passing</div></div>
   </div>
-  <p style="margin-top: 30px; color: #7cafc2;">
-    The last month was hostile — high vol + negative funding.<br>
-    <span class="accent">Arashi lost 0.38%. A naive strategy would have lost far more.</span>
+  <p style="margin-top: 20px; color: #7cafc2;">
+    A naive strategy would have lost far more. <span class="accent">Arashi lost 0.38% — the price of not blowing up.</span>
   </p>
 </div>
 
@@ -237,13 +179,13 @@
       <span class="dim">Jump risk:</span> Yang-Zhang assumes continuous prices. Flash crashes create 1-2 cycle lag (3-6 min). The 30s health monitor is the backup.
     </div>
     <div class="fade-item" style="font-size: 26px; margin: 16px 0; padding: 16px; border-left: 4px solid #666;">
-      <span class="dim">Vol→funding correlation:</span> Breaks in bear panics. The funding gate handles this, but Arashi sits idle — accepting missed opportunity over catastrophic loss.
-    </div>
-    <div class="fade-item" style="font-size: 26px; margin: 16px 0; padding: 16px; border-left: 4px solid #666;">
-      <span class="dim">Solana congestion:</span> During extreme events, keeper transactions may delay. Max 1.5x leverage provides a buffer to liquidation.
+      <span class="dim">Vol→funding correlation:</span> Breaks in bear panics. Funding gate handles this, but we sit idle — accepting missed opportunity over loss.
     </div>
     <div class="fade-item" style="font-size: 26px; margin: 16px 0; padding: 16px; border-left: 4px solid #5fb3d4;">
-      <span class="accent">We don't hide our weaknesses — we design around them.</span>
+      <span class="accent">Philosophy: Capital preservation first. Alpha second.</span><br>
+      <span class="dim" style="font-size: 20px; margin-top: 8px; display: block;">
+        Live dashboard monitors all 4 defense layers in real-time with actual Drift data.
+      </span>
     </div>
   </div>
 </div>
@@ -257,50 +199,23 @@
       <tr><td class="dim">Target APY</td><td class="accent">10-18% (normal vol + positive funding)</td></tr>
       <tr><td class="dim">Base Asset</td><td>USDC</td></tr>
       <tr><td class="dim">Lock Period</td><td>3-month rolling</td></tr>
-      <tr><td class="dim">Edge</td><td>Funding gate + regime sizing + dynamic delta + health monitoring</td></tr>
+      <tr><td class="dim">Edge</td><td>Funding gate + regime sizing + dynamic delta + health monitor</td></tr>
+      <tr><td class="dim">Tests</td><td>28 unit tests + devnet trading validated</td></tr>
+      <tr><td class="dim">Dashboard</td><td>Live monitoring with real Drift data</td></tr>
       <tr><td class="dim">Philosophy</td><td>Capital preservation first. Alpha second.</td></tr>
     </table>
   </div>
-  <p style="margin-top: 40px;">
-    <span class="accent">github.com/psyto/arashi</span>
-  </p>
+  <p style="margin-top: 40px;"><span class="accent">github.com/psyto/arashi</span></p>
   <p style="margin-top: 10px; color: #666;">Main Track + Drift Side Track</p>
 </div>
 
 <div class="progress" id="progress"></div>
 <div class="slide-number" id="slide-number"></div>
-
 <script>
-const TOTAL_SLIDES = 8;
-const SLIDE_DURATION = 8000;
-const FADE_DELAY = 500;
-let currentSlide = 0;
-
-function showSlide(n) {
-  document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
-  const slide = document.getElementById(`slide-${n + 1}`);
-  if (slide) {
-    slide.classList.add('active');
-    const items = slide.querySelectorAll('.fade-item');
-    items.forEach((item, i) => {
-      setTimeout(() => item.classList.add('visible'), FADE_DELAY * (i + 1));
-    });
-  }
-  document.getElementById('progress').style.width = `${((n + 1) / TOTAL_SLIDES) * 100}%`;
-  document.getElementById('slide-number').textContent = `${n + 1} / ${TOTAL_SLIDES}`;
-}
-
-function nextSlide() {
-  currentSlide++;
-  if (currentSlide >= TOTAL_SLIDES) return;
-  showSlide(currentSlide);
-  if (currentSlide < TOTAL_SLIDES - 1) {
-    setTimeout(nextSlide, SLIDE_DURATION);
-  }
-}
-
-showSlide(0);
-setTimeout(nextSlide, SLIDE_DURATION);
+const T=8,D=8000,F=500;let c=0;
+function show(n){document.querySelectorAll('.slide').forEach(s=>s.classList.remove('active'));const s=document.getElementById(`slide-${n+1}`);if(s){s.classList.add('active');s.querySelectorAll('.fade-item').forEach((e,i)=>setTimeout(()=>e.classList.add('visible'),F*(i+1)));}document.getElementById('progress').style.width=`${((n+1)/T)*100}%`;document.getElementById('slide-number').textContent=`${n+1} / ${T}`;}
+function next(){c++;if(c>=T)return;show(c);if(c<T-1)setTimeout(next,D);}
+show(0);setTimeout(next,D);
 </script>
 </body>
 </html>
